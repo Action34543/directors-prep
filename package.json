@@ -6,8 +6,8 @@
   "scripts": {
     "start": "electron .",
     "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win",
-    "build": "electron-builder --mac --win"
+    "build:win": "electron-builder --win --config.win.signAndEditExecutable=false",
+    "build": "electron-builder --mac --win --config.win.signAndEditExecutable=false"
   },
   "build": {
     "appId": "com.directorsprep.app",
