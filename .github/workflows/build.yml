@@ -3,7 +3,10 @@ name: Build & Release
 on:
   push:
     tags:
-      - 'v*'   # Runs whenever you push a tag like v1.0.1
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
 
@@ -22,9 +25,7 @@ jobs:
         run: npm ci
 
       - name: Build Windows
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build:win
+        run: npm run build:win -- --publish never
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
@@ -47,9 +48,7 @@ jobs:
         run: npm ci
 
       - name: Build Mac
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: npm run build:mac
+        run: npm run build:mac -- --publish never
 
       - name: Upload Mac DMG
         uses: actions/upload-artifact@v4
