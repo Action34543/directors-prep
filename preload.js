@@ -24,5 +24,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Window chrome
   setTitle: (title) => ipcRenderer.invoke('set-title', title),
 
+  // Licensing
+  getLicenseStatus: ()    => ipcRenderer.invoke('get-license-status'),
+  activateLicense:  (key) => ipcRenderer.invoke('activate-license', key),
+  openExternal:     (url) => ipcRenderer.invoke('open-external', url),
+
   platform: process.platform,
 });

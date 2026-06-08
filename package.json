@@ -1,7 +1,8 @@
 {
   "name": "directors-prep",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Director's Prep — scene blocking and storyboarding tool",
+  "author": "Julian Kemp",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

@@ -16,8 +16,7 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; font: 14px/1.45 -apple-system, system-ui, sans-serif; color: var(--text); background: var(--bg); }
   #app { display: grid; grid-template-columns: 520px 6px 1fr; height: 100vh; }
-  #divider { background: #e5e5e3; cursor: col-resize; position: relative; z-index: 20; }
-  #divider:hover, #divider.dragging { background: #2563eb; }
+  #divider { background: #e5e5e3; cursor: default; position: relative; z-index: 20; }
 
   #left { border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
   #left header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
@@ -39,7 +38,7 @@
   .scene-item .playhead { display: block; pointer-events: auto; }
   .playhead::after { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 2px; background: #dc2626; box-shadow: 0 0 0 1px rgba(255,255,255,0.6); }
   .playhead::before { content: ''; position: absolute; left: -5px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: #dc2626; }
-  .scene-body { flex: 1; min-width: 0; font: 12px/1.55 'Courier New', monospace; color: #333; position: relative; }
+  .scene-body { flex: none; width: 360px; font: 12px/1.55 'Courier New', monospace; color: #333; position: relative; }
   .char-strips { display: flex; gap: 3px; flex-shrink: 0; }
   .char-strip { width: 14px; border-radius: 3px; position: relative; cursor: crosshair; }
   .cam-active-dot { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 4px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid currentColor; pointer-events: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35)); z-index: 5; }
@@ -226,6 +225,28 @@
 </style>
 </head>
 <body>
+<!-- ── License overlay ── -->
+<div id="license-overlay" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(15,15,15,0.85); backdrop-filter:blur(6px); align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:16px; padding:40px 44px; max-width:460px; width:90%; box-shadow:0 24px 64px rgba(0,0,0,0.35); text-align:center; font-family:-apple-system,system-ui,sans-serif;">
+    <img src="assets/icon.png" style="width:56px;height:56px;border-radius:12px;margin-bottom:16px;">
+    <h2 id="lic-title" style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1c1c1a;">Your trial has expired</h2>
+    <p id="lic-body" style="margin:0 0 28px;font-size:15px;color:#555;line-height:1.5;">Purchase a license to continue using Director's Prep.</p>
+
+    <a id="lic-buy-btn" href="#" style="display:inline-block;width:100%;padding:13px;background:#2563eb;color:#fff;border-radius:10px;font-size:16px;font-weight:600;text-decoration:none;margin-bottom:12px;box-sizing:border-box;">
+      Buy Director's Prep — $49
+    </a>
+
+    <div style="display:flex;gap:8px;margin-bottom:20px;">
+      <input id="lic-key-input" type="text" placeholder="Enter license key…" style="flex:1;padding:11px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;outline:none;">
+      <button id="lic-activate-btn" style="padding:11px 18px;background:#1c1c1a;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">Activate</button>
+    </div>
+
+    <p id="lic-error" style="display:none;color:#dc2626;font-size:13px;margin:0 0 12px;"></p>
+
+    <button id="lic-trial-btn" style="display:none;background:none;border:none;color:#888;font-size:13px;cursor:pointer;text-decoration:underline;">Continue trial (x days left)</button>
+  </div>
+</div>
+
 <div id="drop-overlay">
   <div id="drop-overlay-inner">
     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
@@ -855,19 +876,22 @@ function renderSceneList() {
     const usedNames = new Set(camTokens.map(t => t.name));
     const cameraEntries = camTokens
       .filter(t => !deleted.has(t.name))
-      .map((t, i) => {
+      .map((t, idx) => {
         const m = (t.name || '').match(/(\d+)/);
-        const idx = m ? (parseInt(m[1], 10) - 1) % CAMERA_COLORS.length : (i % CAMERA_COLORS.length);
-        const color = t.color || CAMERA_COLORS[(idx + CAMERA_COLORS.length) % CAMERA_COLORS.length];
+        const colorIdx = m ? (parseInt(m[1], 10) - 1) % CAMERA_COLORS.length : (idx % CAMERA_COLORS.length);
+        const color = t.color || CAMERA_COLORS[(colorIdx + CAMERA_COLORS.length) % CAMERA_COLORS.length];
         return { name: t.name, kind: 'camera', color };
       });
-    // Make sure the three defaults still appear even if the scene has no
-    // camera tokens yet (e.g. first render).
-    const defaults = ['CAM 1', 'CAM 2', 'CAM 3'];
-    for (let i = 0; i < defaults.length; i++) {
-      const n = defaults[i];
-      if (usedNames.has(n) || deleted.has(n)) continue;
-      cameraEntries.push({ name: n, kind: 'camera', color: CAMERA_COLORS[i % CAMERA_COLORS.length] });
+    // Show 3 default strips only when NO camera tokens have been placed yet.
+    // Once the user places their first camera, only actual tokens are shown —
+    // so every new camera produces a clearly visible new strip.
+    if (camTokens.length === 0) {
+      const defaults = ['CAM 1', 'CAM 2', 'CAM 3'];
+      for (let di = 0; di < defaults.length; di++) {
+        const n = defaults[di];
+        if (deleted.has(n)) continue;
+        cameraEntries.push({ name: n, kind: 'camera', color: CAMERA_COLORS[di % CAMERA_COLORS.length] });
+      }
     }
     const cameraNames = cameraEntries;
     // Vehicles and shapes the user has "tracked" via the canvas button get
@@ -1054,6 +1078,61 @@ function renderSceneList() {
   });
   root.scrollTop = savedScroll;
   updateStripLabels();
+
+  // Widen the left panel to fit the widest scene's strips exactly.
+  // scene-body is fixed at 360px. Strip: 14px. Gap within strips: 3px. Section gap: 6px. Padding: 32px.
+  {
+    const STRIP   = 14;
+    const SGAP    = 3;  // gap between strips inside a container
+    const CGAP    = 6;  // gap between sections in scene-content
+    const PADDING = 32; // scene-item padding (16px × 2)
+    const BODY    = 360;
+
+    function stripsWidth(n) {
+      return n > 0 ? n * STRIP + (n - 1) * SGAP : 0;
+    }
+
+    let maxNeeded = 0;
+
+    state.scenes.forEach(sc => {
+      const tokens  = sc.tokens || [];
+      const deleted = new Set(sc.deletedCharacters || []);
+
+      // EDIT: always 1
+      const editW = STRIP;
+
+      // Cameras: actual tokens, or 3 defaults if none placed
+      const camTokens = tokens.filter(t => t.kind === 'camera' && !deleted.has(t.name));
+      const camCount  = camTokens.length > 0 ? camTokens.length : 3;
+      const camW      = stripsWidth(camCount);
+
+      // Actors: screenplay chars + canvas actors
+      const scriptActors = extractCharacters(sc).filter(n => !deleted.has(n));
+      const tokenActors  = tokens.filter(t => t.kind === 'actor' && !deleted.has(t.name)).map(t => t.name);
+      const actorCount   = new Set([...scriptActors, ...tokenActors]).size;
+
+      // Tracked vehicles / shapes / lights
+      const trackedCount = tokens.filter(t =>
+        (t.kind === 'vehicle' || t.kind === 'shape' || t.kind === 'light') && t.tracked && !deleted.has(t.name)
+      ).length;
+
+      const actorW = stripsWidth(actorCount + trackedCount);
+
+      // Gaps between the 4 sections (only count sections that exist)
+      const sectionCount = [editW, camW, BODY, actorW].filter(w => w > 0).length;
+      const gapsW = (sectionCount - 1) * CGAP;
+
+      const needed = PADDING + editW + camW + BODY + actorW + gapsW + 20; // +20px safety margin
+      maxNeeded = Math.max(maxNeeded, needed);
+    });
+
+    const appEl = document.getElementById('app');
+    if (appEl && maxNeeded > 0) {
+      const next = Math.max(520, Math.ceil(maxNeeded));
+      appEl.style.gridTemplateColumns = `${next}px 6px 1fr`;
+    }
+  }
+
   // Notify auto-save that state may have changed.
   if (typeof window.markDirty === 'function') window.markDirty();
 }
@@ -4589,7 +4668,6 @@ function scheduleViewfinderRender() {
   vfRenderRaf = requestAnimationFrame(() => {
     vfRenderRaf = null;
     renderViewfinder();
-    updateViewfinderSubtitle();
     refreshPathOverlay();
   });
 }
@@ -6698,24 +6776,7 @@ function exportSceneVideo(sceneIdx) {
 
 (function initDivider() {
   const app = document.getElementById('app');
-  const divider = document.getElementById('divider');
-  if (!app || !divider) return;
-  divider.onpointerdown = (e) => {
-    e.preventDefault();
-    divider.setPointerCapture(e.pointerId);
-    divider.classList.add('dragging');
-    const appRect = app.getBoundingClientRect();
-    const move = (ev) => {
-      const left = Math.max(220, Math.min(appRect.width - 240, ev.clientX - appRect.left));
-      app.style.gridTemplateColumns = `${left}px 6px 1fr`;
-    };
-    divider.onpointermove = move;
-    divider.onpointerup = () => {
-      divider.classList.remove('dragging');
-      divider.onpointermove = null;
-      divider.onpointerup = null;
-    };
-  };
+  // Divider is fixed — not draggable.
 })();
 
 document.addEventListener('pointerdown', (e) => {
@@ -8920,6 +8981,7 @@ function attachNameRename(el, nameEl, token, kind) {
     };
     const onBlur = () => finish(true);
     const onKey = (ev) => {
+      ev.stopPropagation(); // prevent space triggering Play, delete triggering token removal, etc.
       if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
       else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
     };
@@ -11684,6 +11746,7 @@ function attachPlayheadScrub(sceneEl, idx) {
         playhead.style.top = (t * 100) + '%';
         state.scenes[idx].playheadT = t;
         applySceneAtT(idx, t);
+        updateViewfinderSubtitle();
         const sceneList = document.getElementById('scene-list');
         const phRect = playhead.getBoundingClientRect();
         const slRect = sceneList.getBoundingClientRect();
@@ -11905,7 +11968,8 @@ function applySceneAtT(idx, t) {
       }
     }
   }
-  scheduleViewfinderRender();
+  updateViewfinderSubtitle(); // sync — subtitle always matches current playhead position
+  scheduleViewfinderRender(); // async — 3D re-render happens next frame
 }
 
 function playScene(idx, btn) {
@@ -11967,6 +12031,7 @@ function playScene(idx, btn) {
       playhead.style.top = (t * 100) + '%';
       followPlayhead(playhead);
     }
+    updateViewfinderSubtitle();
     for (const tr of tracks) {
       const kfs = tr.kfs;
       let snap;
@@ -12749,6 +12814,105 @@ window.addEventListener('resize', updateStripLabels);
       if (importBtn) { importBtn.textContent = orig; importBtn.disabled = false; }
     }
   });
+})();
+</script>
+
+<script>
+// ── Licensing / Trial ────────────────────────────────────────────────────────
+(async function initLicensing() {
+  if (!window.electronAPI) return; // web/dev mode — skip
+
+  const overlay      = document.getElementById('license-overlay');
+  const title        = document.getElementById('lic-title');
+  const body         = document.getElementById('lic-body');
+  const buyBtn       = document.getElementById('lic-buy-btn');
+  const keyInput     = document.getElementById('lic-key-input');
+  const activateBtn  = document.getElementById('lic-activate-btn');
+  const errorEl      = document.getElementById('lic-error');
+  const trialBtn     = document.getElementById('lic-trial-btn');
+
+  // Buy button opens checkout in browser
+  const CHECKOUT_URL = 'https://directorsprep.lemonsqueezy.com/buy/https://directorsprep.lemonsqueezy.com/checkout/buy/5e5b14c3-d11b-4a59-98fa-10093ed8c436';
+  buyBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    window.electronAPI.openExternal(CHECKOUT_URL);
+  });
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.style.display = 'block';
+  }
+
+  function hideError() {
+    errorEl.style.display = 'none';
+  }
+
+  // Activate button
+  activateBtn.addEventListener('click', async () => {
+    const key = keyInput.value.trim();
+    if (!key) { showError('Please enter a license key.'); return; }
+    hideError();
+    activateBtn.textContent = 'Checking…';
+    activateBtn.disabled = true;
+
+    const result = await window.electronAPI.activateLicense(key);
+    if (result.ok) {
+      overlay.style.display = 'none';
+    } else {
+      showError(result.error || 'Activation failed.');
+      activateBtn.textContent = 'Activate';
+      activateBtn.disabled = false;
+    }
+  });
+
+  // Check status on launch
+  const status = await window.electronAPI.getLicenseStatus();
+
+  if (status.licensed) {
+    // All good — hide overlay (it's already hidden)
+    return;
+  }
+
+  if (!status.expired) {
+    // In trial — show a subtle banner instead of blocking overlay
+    const daysLeft = status.daysLeft;
+    const banner = document.createElement('div');
+    banner.id = 'trial-banner';
+    banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:999;background:#1c1c1a;color:#fff;text-align:center;padding:8px 16px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:16px;';
+    banner.innerHTML = `
+      <span>⏱ Trial: <strong>${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining</strong></span>
+      <a href="#" id="banner-buy" style="color:#60a5fa;font-weight:600;text-decoration:none;">Buy now — $49</a>
+      <button id="banner-dismiss" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">×</button>
+    `;
+    document.body.appendChild(banner);
+
+    document.getElementById('banner-buy').addEventListener('click', (e) => {
+      e.preventDefault();
+      showLicenseOverlay(false);
+    });
+    document.getElementById('banner-dismiss').addEventListener('click', () => {
+      banner.remove();
+    });
+    return;
+  }
+
+  // Trial expired — show blocking overlay
+  showLicenseOverlay(true);
+
+  function showLicenseOverlay(expired) {
+    if (expired) {
+      title.textContent = 'Your trial has expired';
+      body.textContent  = 'Purchase a license to continue using Director\'s Prep.';
+      trialBtn.style.display = 'none';
+    } else {
+      title.textContent = 'Director\'s Prep';
+      body.textContent  = `You have ${status.daysLeft} days left in your trial.`;
+      trialBtn.style.display = 'block';
+      trialBtn.textContent   = `Continue trial (${status.daysLeft} day${status.daysLeft === 1 ? '' : 's'} left)`;
+      trialBtn.addEventListener('click', () => { overlay.style.display = 'none'; });
+    }
+    overlay.style.display = 'flex';
+  }
 })();
 </script>
 </body>

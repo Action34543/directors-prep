@@ -2,6 +2,11 @@ const { app, BrowserWindow, Menu, shell, dialog, ipcMain, nativeTheme } = requir
 const path = require('path');
 const fs   = require('fs');
 const { autoUpdater } = require('electron-updater');
+const { getLicenseStatus, activateKey } = require('./license');
+
+// Ensure the app name shows correctly everywhere (title bar, About, Dock, etc.)
+// The package.json "name" field is "directors-prep" (kebab-case); override it here.
+app.name = "Director's Prep";
 
 function iconPath() {
   const dark = nativeTheme.shouldUseDarkColors;
@@ -254,6 +259,17 @@ ipcMain.handle('add-recent-file', (_event, filePath) => {
 
 ipcMain.handle('set-title', (_event, title) => {
   if (win) win.setTitle(title);
+});
+
+ipcMain.handle('get-license-status', () => getLicenseStatus());
+
+ipcMain.handle('activate-license', async (_event, key) => {
+  const result = await activateKey(key.trim());
+  return result;
+});
+
+ipcMain.handle('open-external', (_event, url) => {
+  shell.openExternal(url);
 });
 
 // ── App lifecycle ────────────────────────────────────────────────────────────
