@@ -15,7 +15,7 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; font: 14px/1.45 -apple-system, system-ui, sans-serif; color: var(--text); background: var(--bg); }
-  #app { display: grid; grid-template-columns: 520px 6px 1fr; height: 100vh; }
+  #app { display: grid; grid-template-columns: 520px 6px 1fr; height: 100vh; transition: grid-template-columns 0.25s ease; }
   #divider { background: #e5e5e3; cursor: default; position: relative; z-index: 20; }
 
   #left { border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
@@ -1003,6 +1003,9 @@ function renderSceneList() {
           const wc = ss.text.split(/\s+/).filter(Boolean).length;
           if (meta) meta.textContent = `${wc} words`;
           renderStage();
+          // Update panel width for the newly-selected scene so the divider
+          // slides to match its strip count (same as selectScene does).
+          renderSceneList();
         }
         // EDIT armed + camera strip click → drop a cut keyframe for THIS
         // camera at the clicked time on the EDIT track. Keeps EDIT armed.
@@ -1083,53 +1086,42 @@ function renderSceneList() {
   // scene-body is fixed at 360px. Strip: 14px. Gap within strips: 3px. Section gap: 6px. Padding: 32px.
   {
     const STRIP   = 14;
-    const SGAP    = 3;  // gap between strips inside a container
-    const CGAP    = 6;  // gap between sections in scene-content
-    const PADDING = 32; // scene-item padding (16px × 2)
+    const SGAP    = 3;
+    const CGAP    = 6;
+    const PADDING = 32;
     const BODY    = 360;
 
     function stripsWidth(n) {
       return n > 0 ? n * STRIP + (n - 1) * SGAP : 0;
     }
 
-    let maxNeeded = 0;
-
-    state.scenes.forEach(sc => {
+    function neededForScene(sc) {
       const tokens  = sc.tokens || [];
       const deleted = new Set(sc.deletedCharacters || []);
-
-      // EDIT: always 1
       const editW = STRIP;
-
-      // Cameras: actual tokens, or 3 defaults if none placed
       const camTokens = tokens.filter(t => t.kind === 'camera' && !deleted.has(t.name));
       const camCount  = camTokens.length > 0 ? camTokens.length : 3;
       const camW      = stripsWidth(camCount);
-
-      // Actors: screenplay chars + canvas actors
       const scriptActors = extractCharacters(sc).filter(n => !deleted.has(n));
       const tokenActors  = tokens.filter(t => t.kind === 'actor' && !deleted.has(t.name)).map(t => t.name);
       const actorCount   = new Set([...scriptActors, ...tokenActors]).size;
-
-      // Tracked vehicles / shapes / lights
       const trackedCount = tokens.filter(t =>
         (t.kind === 'vehicle' || t.kind === 'shape' || t.kind === 'light') && t.tracked && !deleted.has(t.name)
       ).length;
-
       const actorW = stripsWidth(actorCount + trackedCount);
-
-      // Gaps between the 4 sections (only count sections that exist)
       const sectionCount = [editW, camW, BODY, actorW].filter(w => w > 0).length;
       const gapsW = (sectionCount - 1) * CGAP;
+      return Math.max(520, Math.ceil(PADDING + editW + camW + BODY + actorW + gapsW + 20));
+    }
 
-      const needed = PADDING + editW + camW + BODY + actorW + gapsW + 20; // +20px safety margin
-      maxNeeded = Math.max(maxNeeded, needed);
-    });
+    // Store per-scene widths globally so selectScene can look them up.
+    window._scenePanelWidths = state.scenes.map(sc => neededForScene(sc));
 
+    // Apply width for the current active scene immediately.
     const appEl = document.getElementById('app');
-    if (appEl && maxNeeded > 0) {
-      const next = Math.max(520, Math.ceil(maxNeeded));
-      appEl.style.gridTemplateColumns = `${next}px 6px 1fr`;
+    const idx = state.activeIdx >= 0 ? state.activeIdx : 0;
+    if (appEl && window._scenePanelWidths[idx]) {
+      appEl.style.gridTemplateColumns = `${window._scenePanelWidths[idx]}px 6px 1fr`;
     }
   }
 
@@ -1158,6 +1150,10 @@ function selectScene(i) {
   renderSceneList();
   renderActive();
   renderStage();
+  // Slide the divider to match this scene's strip count.
+  const appEl = document.getElementById('app');
+  const w = window._scenePanelWidths && window._scenePanelWidths[i];
+  if (appEl && w) appEl.style.gridTemplateColumns = `${w}px 6px 1fr`;
 }
 
 // Walk a scene's lines and collect distinct character names from cues.
@@ -4435,8 +4431,12 @@ function buildViewfinderScene(scene) {
 
 function positionViewfinderCam(camTok) {
   if (!camTok) return;
-  const cx = camTok.x / VF_SCALE;
-  const cz = camTok.y / VF_SCALE;
+  // Camera token element is 50 px wide, rotator is 50×90 px — add half-size
+  // offsets so the 3D camera sits at the visual centre/pivot of the token,
+  // consistent with how actor tokens are centred (using their 60×60 midpoint).
+  const CAM_W = 50, CAM_H = 90;
+  const cx = (camTok.x + CAM_W / 2) / VF_SCALE;
+  const cz = (camTok.y + CAM_H / 2) / VF_SCALE;
   const rotRad = (camTok.rot || 0) * Math.PI / 180;
   const camY = (typeof camTok.camHeight === 'number') ? camTok.camHeight : VF_CAM_HEIGHT;
   const tiltDeg = (typeof camTok.tilt === 'number') ? camTok.tilt : -10;
