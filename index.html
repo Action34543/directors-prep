@@ -99,16 +99,16 @@
   /* Palette grid: fixed-size square swatches packed in 5 columns × 3 rows.
      justify/align-content centre the whole grid inside the round container
      so the swatches align with the dial. */
-  #radial-menu .palette { position: absolute; left: 32px; top: 32px; width: 156px; height: 156px; display: grid; grid-template-columns: repeat(5, 22px); grid-auto-rows: 22px; gap: 6px; padding: 14px; background: rgba(255,255,255,0.97); border-radius: 50%; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.25); justify-content: center; align-content: center; box-sizing: border-box; }
+  #radial-menu .palette { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 156px; height: 156px; display: grid; grid-template-columns: repeat(5, 22px); grid-auto-rows: 22px; gap: 6px; padding: 14px; background: rgba(255,255,255,0.97); border-radius: 50%; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.25); justify-content: center; align-content: center; box-sizing: border-box; }
   #radial-menu .swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.1); cursor: pointer; padding: 0; transition: transform 0.1s; }
   #radial-menu .swatch:hover { transform: scale(1.15); }
-  #radial-menu .size-widget { position: absolute; left: 32px; top: 32px; width: 156px; height: 156px; background: rgba(255,255,255,0.97); border-radius: 50%; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.25); display: flex; flex-direction: column; align-items: center; padding: 20px 22px; gap: 4px; }
+  #radial-menu .size-widget { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 156px; height: 156px; background: rgba(255,255,255,0.97); border-radius: 50%; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.25); display: flex; flex-direction: column; align-items: center; padding: 20px 22px; gap: 4px; }
   #radial-menu .size-widget .label { font: 600 11px -apple-system, system-ui, sans-serif; color: #1c1c1a; letter-spacing: 0.04em; }
   #radial-menu .size-widget .figure { flex: 1; display: flex; align-items: flex-end; justify-content: center; min-height: 0; width: 100%; }
   #radial-menu .size-widget input[type=range] { width: 100%; cursor: pointer; margin: 0; }
   #radial-menu .size-widget .reset { position: absolute; right: -22px; top: -8px; width: 24px; height: 24px; padding: 4px; border-radius: 50%; border: 1px solid var(--border); background: rgba(255,255,255,0.95); cursor: pointer; z-index: 6; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
   #radial-menu .size-widget .reset svg { width: 100%; height: 100%; display: block; }
-  #radial-menu .pos-widget { position: absolute; left: 32px; top: 32px; width: 156px; height: 156px; background: rgba(255,255,255,0.97); border-radius: 50%; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.25); overflow: hidden; }
+  #radial-menu .pos-widget { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 156px; height: 156px; background: rgba(255,255,255,0.97); border-radius: 50%; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.25); overflow: hidden; }
   #radial-menu .pos-widget canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; }
   #radial-menu .pos-widget .reset { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); width: 24px; height: 24px; padding: 4px; border-radius: 50%; border: 1px solid var(--border); background: rgba(255,255,255,0.92); cursor: pointer; z-index: 2; display: flex; align-items: center; justify-content: center; }
   #radial-menu .pos-widget .reset svg { width: 100%; height: 100%; display: block; }
@@ -118,7 +118,7 @@
   #radial-menu .iris { position: absolute; left: -12px; bottom: 26px; width: 36px; height: 36px; padding: 0; border-radius: 50%; border: none; background: transparent; cursor: pointer; z-index: 3; display: flex; align-items: center; justify-content: center; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25)); }
   #radial-menu .iris:hover { transform: scale(1.08); }
   #radial-menu .iris svg { width: 100%; height: 100%; display: block; }
-  #radial-menu .pose-widget { position: absolute; left: 32px; top: 32px; width: 156px; height: 156px; background: rgba(255,255,255,0.97); border-radius: 50%; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.25); display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap: 4px; padding: 22px; }
+  #radial-menu .pose-widget { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 156px; height: 156px; background: rgba(255,255,255,0.97); border-radius: 50%; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.25); display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap: 4px; padding: 22px; }
   #radial-menu .pose-widget button { font: 600 10px -apple-system, system-ui, sans-serif; padding: 4px 2px; border: 1px solid rgba(255,255,255,0.7); border-radius: 6px; color: white; cursor: pointer; transition: filter 0.12s; text-shadow: 0 1px 2px rgba(0,0,0,0.35); }
   #radial-menu .pose-widget button:hover { filter: brightness(1.12); }
   #radial-menu .pose-widget button.active { border-color: #000; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4); }
@@ -290,9 +290,9 @@
         <svg id="minimap-svg" xmlns="http://www.w3.org/2000/svg"></svg>
         <div id="minimap-viewport"></div>
       </div>
-      <div id="stage-zoom" style="display:none">
-        <button id="zoom-in"  type="button" title="Zoom in (Ctrl++)"></button>
-        <button id="zoom-out" type="button" title="Zoom out (Ctrl+-)"></button>
+      <div id="stage-zoom">
+        <button id="zoom-in"  type="button" title="Zoom in (Ctrl++)"><svg viewBox="0 0 2048 2048" xmlns="http://www.w3.org/2000/svg"><path fill="rgb(0,0,0)" d="M 1237.85 294.449 C 1335.24 287.549 1447.2 324.616 1527.1 379.368 C 1634.11 453.049 1707.83 565.883 1732.31 693.477 C 1755.68 821.04 1727.55 952.666 1654.07 1059.53 C 1580.54 1166.3 1465.01 1236.18 1338.17 1259.32 C 1209.38 1282.57 1076.64 1253.23 969.647 1177.85 C 963.054 1186.02 940.807 1207.4 932.67 1215.66 L 858.224 1291.69 L 607.5 1546.11 C 553.403 1600.86 499.351 1655.79 445.409 1710.7 C 426.525 1729.93 406.823 1740.6 379.476 1740.2 C 361.418 1739.94 340.842 1729.61 328.308 1716.55 C 315.227 1703.07 308.247 1684.82 308.999 1666.05 C 309.545 1649.87 316.042 1631.85 326.511 1619.69 C 346.549 1596.42 370.197 1573.63 391.682 1551.58 L 524.404 1415.82 L 735.504 1201.35 L 809.535 1126.76 C 826.482 1109.56 844.376 1090.35 861.819 1073.87 C 801.524 1005.29 765.857 893.279 761.752 803.134 C 756.474 676.07 801.843 552.107 887.894 458.468 C 982.248 355.547 1098.21 300.435 1237.85 294.449 z"/><path fill="rgb(253,253,253)" d="M 1223.86 341.34 C 1467.36 325.99 1677.01 511.351 1691.62 754.897 C 1706.22 998.444 1520.22 1207.53 1276.63 1221.39 C 1034.09 1235.18 826.107 1050.16 811.566 807.668 C 797.026 565.175 981.41 356.624 1223.86 341.34 z"/><path fill="rgb(0,0,0)" d="M 1243.19 592.176 C 1244.21 592.119 1245.24 592.076 1246.26 592.049 C 1256.38 591.806 1269.59 598.23 1270.51 609.374 C 1271.71 623.813 1271.11 639.514 1271.11 654.094 L 1271.08 751.714 C 1324.91 752.822 1379.14 750.736 1432.94 752.345 C 1444.69 752.696 1452.58 766.661 1453.05 776.826 C 1453.46 785.681 1444.03 797.689 1434.99 798.405 C 1416.83 799.844 1398.31 799.37 1380.12 799.381 L 1271.04 799.244 L 1271.15 885.762 C 1271.16 900.839 1271.52 916.097 1270.73 931.14 C 1270.15 942.007 1261.6 947.543 1252.2 950.521 C 1251.31 950.562 1250.42 950.588 1249.53 950.599 C 1223.82 950.851 1224.17 930.796 1224.43 911.427 C 1224.94 874.089 1223.46 836.364 1224.49 799.063 C 1189.03 799.395 1153.56 799.55 1118.09 799.527 C 1100.63 799.556 1080.3 800.575 1063.3 798.676 C 1036.56 795.691 1039.41 753.976 1065.18 752.146 C 1081.16 751.011 1098.79 751.846 1114.79 751.862 L 1224.25 751.783 C 1224.23 728.295 1221.67 616.983 1226.23 606.111 C 1229.43 598.49 1236.07 595.246 1243.19 592.176 z"/><path fill="rgb(253,253,253)" d="M 891.355 1110.77 C 895.098 1112.28 925.725 1142.53 932.19 1148.23 C 919.199 1160.77 904.646 1176.65 891.676 1189.81 L 788.193 1295.11 L 541.2 1545.65 L 452.744 1635.4 C 440.969 1647.39 407.437 1684.3 394.136 1690.57 C 391.268 1691.65 387.472 1692.68 384.438 1692.94 C 376.788 1693.65 369.193 1691.11 363.507 1685.94 C 349.925 1673.69 355.213 1657.09 366.102 1645.35 C 385.217 1624.75 405.149 1604.95 424.89 1584.94 L 537.721 1470.68 L 891.355 1110.77 z"/></svg></button>
+        <button id="zoom-out" type="button" title="Zoom out (Ctrl+-)"><svg viewBox="0 0 2048 2048" xmlns="http://www.w3.org/2000/svg"><path fill="rgb(0,0,0)" d="M 1228.38 298.424 C 1464.78 282.484 1680.48 456.538 1728.95 686.036 C 1754.68 810.534 1730.68 940.157 1662.08 1047.19 C 1591.59 1154.96 1480.85 1230 1354.62 1255.52 C 1249.74 1277.92 1140.41 1265.49 1043.23 1220.12 C 1015.82 1207.2 994.766 1194.23 969.622 1177.78 C 939.154 1210.37 904.67 1243.46 873.211 1275.58 L 614.327 1537.37 L 496.539 1656.25 C 489.291 1663.68 482.092 1671.56 474.724 1678.82 C 452.173 1701.02 431.036 1730.68 397.658 1735.87 C 377.505 1739.08 356.906 1734.09 340.458 1722.01 C 323.739 1709.86 315.408 1695.66 311.71 1675.27 C 309.241 1661.66 313.393 1635.24 321.417 1624.91 C 340.846 1599.92 366.68 1575.72 389.175 1552.78 L 508.522 1431.78 L 747.497 1189.86 C 785.391 1150.85 823.583 1112.12 862.072 1073.7 C 802.957 997.108 768.915 904.142 764.592 807.489 C 757.498 681.256 801.391 557.461 886.42 463.892 C 973.786 365.347 1096.89 305.778 1228.38 298.424 z"/><path fill="rgb(254,254,254)" d="M 1237.6 344.292 C 1480 336.446 1682.84 526.653 1690.57 769.061 C 1698.31 1011.47 1508 1214.22 1265.59 1221.84 C 1023.34 1229.45 820.757 1039.3 813.03 797.053 C 805.303 554.807 995.356 352.134 1237.6 344.292 z"/><path fill="rgb(0,0,0)" d="M 1040.32 760.185 C 1116.23 758.539 1192.44 759.916 1268.38 759.889 C 1290.23 759.882 1451.45 757.702 1460.88 761.53 C 1466.98 764.008 1472.15 768.508 1474.66 774.675 C 1476.9 780.147 1476.68 786.591 1474.2 791.95 C 1471.12 798.63 1464.96 801.627 1458.38 804.055 C 1447.26 805.558 1421.9 804.933 1409.9 804.935 L 1321.97 804.921 C 1231.62 804.902 1141.26 804.965 1050.91 804.952 C 1038.73 804.95 1027.89 803.221 1023.04 790.16 C 1020.88 784.371 1021.19 777.952 1023.88 772.393 C 1027.44 764.915 1032.94 762.779 1040.32 760.185 z"/><path fill="rgb(254,254,254)" d="M 891.674 1109.6 C 899.439 1114.86 922.487 1139.04 933.214 1147.9 C 920.661 1159.82 905.962 1175.53 893.504 1188.05 L 805.279 1276.87 L 535.141 1549.96 L 451.055 1634.96 C 438.357 1647.97 411.158 1677.77 397.635 1687.25 C 366.914 1699.63 345.574 1667.42 366.634 1643.69 C 380.057 1628.57 394.982 1614.53 409.173 1600.07 L 508.439 1499.86 L 775.195 1229.19 C 813.35 1190.22 854.614 1149.3 891.674 1109.6 z"/></svg></button>
       </div>
     </div>
   </main>
@@ -1555,7 +1555,7 @@ function renderStage() {
       nameEl.style.position = 'relative';
       attachActorDrag(el, t);
       attachNameRename(el, nameEl, t, 'actor');
-      el.oncontextmenu = (e) => { e.preventDefault(); showRadialMenu(e.clientX, e.clientY, t); };
+      el.oncontextmenu = (e) => { e.preventDefault(); const r = el.getBoundingClientRect(); showRadialMenu(r.left + r.width / 2, r.top + r.height / 2, t); };
     } else if (t.kind === 'camera') {
       // Prefer the colour stamped on the token (set when the camera was
       // created or renamed) so renaming keeps the icon's tint.
@@ -1580,7 +1580,7 @@ function renderStage() {
       camNameEl.style.zIndex = '5';
       camNameEl.style.position = 'relative';
       attachActorDrag(el, t);
-      el.oncontextmenu = (e) => { e.preventDefault(); showCameraPositionWidget(e.clientX, e.clientY, t); };
+      el.oncontextmenu = (e) => { e.preventDefault(); const r = el.getBoundingClientRect(); showCameraPositionWidget(r.left + r.width / 2, r.top + r.height / 2, t); };
       attachNameRename(el, camNameEl, t, 'camera');
     } else if (t.kind === 'light') {
       const showLightUI = (window._activeLightId === t.id);
@@ -3024,9 +3024,11 @@ function renderPathOverlay(stage, scene) {
         })()
       : tok.kind === 'vehicle'
         ? (tok.color || '#b0b8c1')
-        : tok.kind === 'light'
-          ? saturateColor(tok.color || '#fff7e0')
-          : colorForActorName(name);
+        : tok.kind === 'shape'
+          ? (tok.color || '#b0b8c1')
+          : tok.kind === 'light'
+            ? saturateColor(tok.color || '#fff7e0')
+            : colorForActorName(name);
     const pts = kfs.map(kf => ({ x: kf.snapshot.x + c.dx, y: kf.snapshot.y + c.dy }));
     // Each segment a→b has an optional bezier control point stored on the
     // START keyframe as kf.pathControl = {x, y}. When absent the curve
@@ -6307,6 +6309,10 @@ function exportSceneVideo(sceneIdx) {
       if (!raw) return false;
       const data = JSON.parse(raw);
       if (!data || !Array.isArray(data.scenes) || data.scenes.length === 0) return false;
+      lineXMap.clear();
+      if (data._lineXMap && typeof data._lineXMap === 'object') {
+        for (const [k, v] of Object.entries(data._lineXMap)) lineXMap.set(k, v);
+      }
       for (const k of Object.keys(state)) delete state[k];
       Object.assign(state, data);
       if (typeof state.activeIdx !== 'number' || state.activeIdx >= state.scenes.length) state.activeIdx = 0;
@@ -6320,9 +6326,9 @@ function exportSceneVideo(sceneIdx) {
       return false;
     }
   };
-  // Restore on startup (after the rest of the script has defined render
-  // functions — a microtask defer keeps us safe of init ordering).
-  Promise.resolve().then(_restore);
+  // Do NOT restore on startup — always open fresh and blank.
+  // The user must explicitly import a screenplay or open a project.
+  Promise.resolve().then(() => { try { localStorage.removeItem(KEY); } catch (_) {} });
   // Heartbeat save.
   setInterval(_save, 5000);
   // Save once when the page is being closed / hidden so the very last
@@ -6358,11 +6364,16 @@ function exportSceneVideo(sceneIdx) {
 
   // ── Serialiser ───────────────────────────────────────────────────────────
   function buildPayload() {
-    return JSON.stringify(state, (key, val) => {
+    const obj = JSON.parse(JSON.stringify(state, (key, val) => {
       if (typeof key === 'string' && key.startsWith('_')) return undefined;
       if (key === 'charactersInitialised') return undefined;
       return val;
-    }, 2);
+    }));
+    // Persist the PDF margin map so dialogue is re-classified correctly on reload.
+    if (lineXMap.size > 0) {
+      obj._lineXMap = Object.fromEntries(lineXMap);
+    }
+    return JSON.stringify(obj, null, 2);
   }
 
   function projectNameFromState() {
@@ -6461,6 +6472,11 @@ function exportSceneVideo(sceneIdx) {
   // ── Load ──────────────────────────────────────────────────────────────────
   function applyLoadedData(data, filePath) {
     if (!data || !Array.isArray(data.scenes)) throw new Error("Not a Director's Prep save file (no scenes).");
+    // Restore PDF margin data so formatSceneBody can correctly classify dialogue.
+    lineXMap.clear();
+    if (data._lineXMap && typeof data._lineXMap === 'object') {
+      for (const [k, v] of Object.entries(data._lineXMap)) lineXMap.set(k, v);
+    }
     for (const k of Object.keys(state)) delete state[k];
     Object.assign(state, data);
     if (typeof state.activeIdx !== 'number' || state.activeIdx >= state.scenes.length) state.activeIdx = 0;
@@ -10999,7 +11015,8 @@ function startWallTrace() {
   };
   const stagePt = (clientX, clientY) => {
     const r = stage.getBoundingClientRect();
-    return { x: clientX - r.left, y: clientY - r.top };
+    const z = window._stageZoom || 1;
+    return { x: (clientX - r.left) / z, y: (clientY - r.top) / z };
   };
   trace.onClick = (e) => {
     if (e.button !== 0) return;

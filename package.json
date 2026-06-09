@@ -17,6 +17,7 @@
       "index.html",
       "main.js",
       "preload.js",
+      "license.js",
       "assets/**",
       "node_modules/electron-updater/**"
     ],
