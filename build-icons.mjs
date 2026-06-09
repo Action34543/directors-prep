@@ -1,5 +1,6 @@
 import sharp    from 'sharp';
 import pngToIco from 'png-to-ico';
+import png2icons from 'png2icons';
 import fs       from 'fs';
 import path     from 'path';
 import { fileURLToPath } from 'url';
@@ -36,22 +37,36 @@ function makeSvg(paths, bg) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 2048" width="2048" height="2048">${bgRect}${paths}</svg>`;
 }
 
-async function buildSet(svgStr, baseName) {
+async function buildSet(svgStr, baseName, makeIcns = false) {
   const svgBuf = Buffer.from(svgStr);
   const png = path.join(dir, baseName + '.png');
   const ico = path.join(dir, baseName + '.ico');
 
-  await sharp(svgBuf).resize(1024, 1024).png().toFile(png);
+  // Generate 1024×1024 PNG (also used as source for icns)
+  const pngBuf1024 = await sharp(svgBuf).resize(1024, 1024).png().toBuffer();
+  fs.writeFileSync(png, pngBuf1024);
   console.log(`✓ ${baseName}.png`);
 
   const sizes = [16, 32, 48, 256];
   const bufs  = await Promise.all(sizes.map(s => sharp(svgBuf).resize(s, s).png().toBuffer()));
   fs.writeFileSync(ico, await pngToIco(bufs));
   console.log(`✓ ${baseName}.ico`);
+
+  if (makeIcns) {
+    const icns = path.join(dir, baseName + '.icns');
+    const icnsBuf = png2icons.createICNS(pngBuf1024, png2icons.BILINEAR, 0);
+    if (icnsBuf) {
+      fs.writeFileSync(icns, icnsBuf);
+      console.log(`✓ ${baseName}.icns`);
+    } else {
+      console.error(`✗ Failed to generate ${baseName}.icns`);
+    }
+  }
 }
 
 // Both modes: dark logo on white background
-await buildSet(makeSvg(pathsOriginal, '#ffffff'), 'icon');
+// Pass makeIcns=true for the primary icon so Mac builds get icon.icns
+await buildSet(makeSvg(pathsOriginal, '#ffffff'), 'icon', true);
 await buildSet(makeSvg(pathsOriginal, '#ffffff'), 'icon-dark');
 
-console.log('\nDone. Use icon.ico for light mode, icon-dark.ico for dark mode.');
+console.log('\nDone. icon.icns ready for Mac builds.');
