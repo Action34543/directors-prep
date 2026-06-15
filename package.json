@@ -29,6 +29,13 @@
     "mac": {
       "category": "public.app-category.entertainment",
       "icon": "assets/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "notarize": {
+        "teamId": "Z8HTUY6GSN"
+      },
       "target": [
         {
           "target": "dmg",
