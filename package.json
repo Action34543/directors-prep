@@ -33,9 +33,6 @@
       "gatekeeperAssess": false,
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
-      "notarize": {
-        "teamId": "Z8HTUY6GSN"
-      },
       "target": [
         {
           "target": "dmg",
@@ -57,6 +54,7 @@
         }
       ]
     },
+    "afterSign": "notarize.js",
     "dmg": {
       "title": "Director's Prep"
     },
@@ -66,6 +64,7 @@
     }
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "electron": "^31.0.0",
     "electron-builder": "^24.0.0",
     "png-to-ico": "^3.0.1",
