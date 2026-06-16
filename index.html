@@ -6624,6 +6624,12 @@ async function exportFloorplanAndStoryboard(sceneIdx) {
       if (typeof applySceneAtT === 'function') applySceneAtT(sceneIdx, t);
       if (camName && typeof VF !== 'undefined') VF.activeCamName = camName;
       if (typeof renderViewfinder === 'function') renderViewfinder();
+      // gl.finish() flushes the GPU pipeline synchronously — required on
+      // Mac/WebKit where toDataURL() can read a stale backbuffer otherwise.
+      if (typeof VF !== 'undefined' && VF.renderer) {
+        const gl = VF.renderer.getContext();
+        if (gl && typeof gl.finish === 'function') gl.finish();
+      }
       await wait(60);
       return vfCanvas.toDataURL('image/png');
     }
