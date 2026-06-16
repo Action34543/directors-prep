@@ -1,6 +1,6 @@
 {
   "name": "directors-prep",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "Director's Prep — scene blocking and storyboarding tool",
   "author": "Julian Kemp",
   "main": "main.js",
@@ -46,6 +46,7 @@
     },
     "win": {
       "icon": "assets/icon.ico",
+      "artifactName": "directors-prep-setup-${version}.exe",
       "target": [
         {
           "target": "nsis",
@@ -57,7 +58,8 @@
     },
     "afterSign": "notarize.js",
     "dmg": {
-      "title": "Director's Prep"
+      "title": "Director's Prep",
+      "artifactName": "directors-prep-${version}-${arch}.dmg"
     },
     "nsis": {
       "oneClick": false,
