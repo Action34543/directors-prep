@@ -24,9 +24,12 @@
   #left header h1 .sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
   #toolbar { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 6px; flex-wrap: wrap; }
   #scene-list { flex: 1; overflow-y: auto; padding: 8px 0; }
-  .scene-item { padding: 12px 16px 14px; border-left: 3px solid transparent; cursor: pointer; border-bottom: 1px solid #f3f3f1; }
+  .scene-item { padding: 10px 16px; border-left: 3px solid transparent; cursor: pointer; border-bottom: 1px solid #f3f3f1; }
   .scene-item:hover { background: #f8f8f6; }
-  .scene-item.active { border-left-color: var(--accent); }
+  .scene-item.active { border-left-color: var(--accent); padding-bottom: 14px; }
+  .scene-item:not(.active) .scene-content { display: none; }
+  .scene-item:not(.active) .scene-heading { margin-bottom: 0; }
+  .scene-item:not(.active) .scene-num { margin-bottom: 0; }
   .scene-num { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; display: flex; align-items: center; justify-content: space-between; }
   .play-btn { display: none; padding: 4px 10px; border: 1px solid var(--accent); background: var(--accent); color: white; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; }
   .play-btn:hover { background: #1d4fd8; }
@@ -197,6 +200,10 @@
   .token { position: absolute; user-select: none; z-index: 2; }
   .token .wall-handle, .token .wall-rot-handle, .token .wall-rot-stem, .token .furniture-resize-handle, .token .light-aim-handle { display: none; }
   .token.selected .wall-handle, .token.selected .wall-rot-handle, .token.selected .wall-rot-stem, .token.selected .furniture-resize-handle, .token.selected .light-aim-handle { display: block; }
+  .wall-curve-handle { display: none; position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #a78bfa; border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.4); cursor: ns-resize; z-index: 4; touch-action: none; transform: translate(-50%, -50%); }
+  .token.selected .wall-curve-handle { display: block; }
+  .wall-curve-hint { display: none; position: absolute; left: 50%; transform: translateX(-50%); top: -20px; font-size: 10px; font-weight: 600; color: #a78bfa; white-space: nowrap; pointer-events: none; }
+  .token.wall:not([data-curved]) .wall-curve-hint { display: block; }
   /* Lights always show their aim handle so users can adjust the beam
      direction without having to single-click to select first. */
   .token.light .light-aim-handle { display: block; }
@@ -398,19 +405,6 @@ function parseScreenplay(text) {
   if (!matches.length) return [];
 
   const scenes = [];
-  // If there's any non-empty text BEFORE the first slugline, treat it as
-  // an untitled scene 1 with a blank heading — so opening narration,
-  // title-page action, or pre-scene voice-over isn't silently dropped.
-  if (matches[0].start > 0) {
-    const preamble = text.slice(0, matches[0].start).replace(/^\n+|\n+$/g, '');
-    if (preamble.trim()) {
-      scenes.push({
-        heading: '',
-        body: preamble.split('\n'),
-        text: preamble,
-      });
-    }
-  }
   for (let i = 0; i < matches.length; i++) {
     const start = matches[i].start;
     const end = i + 1 < matches.length ? matches[i + 1].start : text.length;
@@ -523,8 +517,14 @@ function formatSceneBody(text) {
   const lines = text.split('\n')
     .map(l => l.trim())
     .filter(l => l.length > 0)
-    // Drop bare page numbers (e.g. "2", "2.", "23.") that survive PDF extraction.
-    .filter(l => !/^\d{1,3}\.?$/.test(l));
+    // Drop bare page numbers (e.g. "2", "2.", "23.", "3 3") that survive PDF extraction.
+    .filter(l => !/^\d{1,3}\.?$/.test(l))
+    .filter(l => !/^\d{1,3}\s+\d{1,3}$/.test(l))
+    // Drop orphaned continuation/more markers.
+    .filter(l => !/^\(CONT[''’]?D\)$/i.test(l))
+    .filter(l => !/^(\(MORE\))+$/i.test(l))
+    // Drop screenplay revision lines (e.g. "11.11. yellow rev. 4/17/23").
+    .filter(l => !/\brev\b.*\d{1,2}\/\d/i.test(l));
   const blocks = [];
   let actionBuf = [];
 
@@ -627,6 +627,38 @@ function formatSceneBody(text) {
   }).join('');
 }
 
+// Colour each top-level script block with a left border matching the __EDIT__
+// camera that covers it, proportionally mapped by block index.
+function colourScriptByEdit(sceneEl, scene) {
+  const body = sceneEl.querySelector('.scene-body');
+  if (!body) return;
+  const editKfs = (scene.keyframes && Array.isArray(scene.keyframes['__EDIT__']))
+    ? scene.keyframes['__EDIT__'].slice().sort((a, b) => a.t - b.t) : [];
+  if (editKfs.length === 0) return;
+  const CAM_PALETTE = ['#ec4899', '#f97316', '#06b6d4'];
+  const camColorFor = (camName) => {
+    if (!camName) return null;
+    const tok = (scene.tokens || []).find(t => t.kind === 'camera' && t.name === camName);
+    if (tok && tok.color) return tok.color;
+    const m = camName.match(/(\d+)/);
+    const ci = m ? (parseInt(m[1], 10) - 1) % CAM_PALETTE.length : 0;
+    return CAM_PALETTE[(ci + CAM_PALETTE.length) % CAM_PALETTE.length];
+  };
+  // Build a linear-gradient with hard stops at each cut point so the colour
+  // is continuous (no gaps between blocks) and cuts land at the exact t%.
+  const stops = [];
+  for (let k = 0; k < editKfs.length; k++) {
+    const kf  = editKfs[k];
+    const pct = (kf.t * 100).toFixed(2) + '%';
+    const color = (camColorFor(kf.snapshot && kf.snapshot.camName) || '#000') + '28';
+    if (k === 0 && kf.t > 0) stops.push(`transparent 0%, transparent ${pct}`);
+    stops.push(`${color} ${pct}`);
+    const nextT = k + 1 < editKfs.length ? editKfs[k + 1].t : 1;
+    stops.push(`${color} ${(nextT * 100).toFixed(2)}%`);
+  }
+  body.style.background = stops.length ? `linear-gradient(to bottom, ${stops.join(', ')})` : '';
+}
+
 // --- Rendering ------------------------------------------------------------
 function renderSceneList() {
   const root = document.getElementById('scene-list');
@@ -661,6 +693,7 @@ function renderSceneList() {
     `;
     el.querySelector('.scene-heading').textContent = stripSceneNum(s.heading);
     el.querySelector('.scene-body').innerHTML = formatSceneBody(s.text) + '<div class="playhead"></div>';
+    colourScriptByEdit(el, s);
     // Speed dropdown — persists per-scene; consumed by playScene to scale
     // the auto-computed duration.
     const speedSel = el.querySelector('.play-speed');
@@ -1058,13 +1091,13 @@ function renderSceneList() {
         font: '600 12px/1.3 sans-serif', color: '#1c1c1a',
         minWidth: '160px', userSelect: 'none',
       });
-      const row = document.createElement('div');
-      row.textContent = 'Export Floorplan PDF';
-      Object.assign(row.style, { padding: '6px 12px', cursor: 'pointer' });
-      row.onmouseenter = () => row.style.background = '#f1f5f9';
-      row.onmouseleave = () => row.style.background = '';
-      row.onclick = () => { menu.remove(); printSceneFloorplan(i); };
-      menu.appendChild(row);
+      const row2 = document.createElement('div');
+      row2.textContent = 'Export Floorplan + Storyboard PDF';
+      Object.assign(row2.style, { padding: '6px 12px', cursor: 'pointer' });
+      row2.onmouseenter = () => row2.style.background = '#f1f5f9';
+      row2.onmouseleave = () => row2.style.background = '';
+      row2.onclick = () => { menu.remove(); exportFloorplanAndStoryboard(i); };
+      menu.appendChild(row2);
       document.body.appendChild(menu);
       // Clamp to viewport.
       const mr = menu.getBoundingClientRect();
@@ -1125,6 +1158,14 @@ function renderSceneList() {
     }
   }
 
+  // Explicitly show/hide scene-content so non-active scenes collapse on all
+  // platforms (the CSS :not(.active) selector is unreliable on some Mac WebKit
+  // versions inside Electron).
+  document.querySelectorAll('.scene-item').forEach(el => {
+    const content = el.querySelector('.scene-content');
+    if (content) content.style.display = el.classList.contains('active') ? '' : 'none';
+  });
+
   // Notify auto-save that state may have changed.
   if (typeof window.markDirty === 'function') window.markDirty();
 }
@@ -1154,6 +1195,10 @@ function selectScene(i) {
   const appEl = document.getElementById('app');
   const w = window._scenePanelWidths && window._scenePanelWidths[i];
   if (appEl && w) appEl.style.gridTemplateColumns = `${w}px 6px 1fr`;
+  // Scroll the active scene to the top of the scene list.
+  const list = document.getElementById('scene-list');
+  const sceneEl = document.getElementById('scene-' + i);
+  if (list && sceneEl) list.scrollTop = sceneEl.offsetTop - list.offsetTop;
 }
 
 // Walk a scene's lines and collect distinct character names from cues.
@@ -1521,6 +1566,62 @@ function actorSvg(color) {
   <path fill="${color}" d="M 861.962 883.944 C 890.471 884.583 925.765 885.494 954.065 884.198 C 951.343 916.556 953.221 940.165 936.806 969.955 C 927.894 982.375 917.911 989.012 902.162 985.931 C 877.437 981.582 868.522 949.395 868.872 927.7 C 869.227 905.673 874.697 903.53 861.962 883.944 z"/>
   <path fill="${color}" d="M 1095.92 884.132 C 1124.72 884.733 1157.82 884.941 1186.61 883.652 C 1179.19 894.889 1178.11 901.199 1179.47 914.585 C 1181.43 933.891 1179.72 949.626 1170.18 967.008 C 1168.96 968.934 1167.62 970.788 1166.19 972.561 C 1160.69 979.308 1151.66 986.456 1142.79 986.652 C 1095.7 987.695 1097.94 913.796 1095.92 884.132 z"/>
 </svg>`;
+}
+
+// ── Bezier wall helpers ──────────────────────────────────────────────────────
+// Rebuild (or clear) the SVG curve overlay inside a wall element.
+// t.curve is the control-point perpendicular offset (px) in the wall's
+// local coordinate space.  Positive = bows toward the wall's "top" edge.
+function buildWallCurveSvg(el, t) {
+  const oldSvg = el.querySelector('.wall-curve-svg');
+  if (oldSvg) oldSvg.remove();
+  if (typeof t.curve !== 'number') {
+    el.style.background   = t.color || '#78716c';
+    el.style.boxShadow    = '0 2px 4px rgba(0,0,0,0.25)';
+    el.style.borderRadius = '2px';
+    el.removeAttribute('data-curved');
+    return;
+  }
+  // Curved — hide background rect, draw SVG stroke path instead.
+  el.style.background   = 'transparent';
+  el.style.boxShadow    = 'none';
+  el.style.borderRadius = '0';
+  el.setAttribute('data-curved', '1');
+  const w = t.width  || 160;
+  const h = t.height || 10;
+  const c = t.curve;          // control-point offset from centreline
+  const color = t.color || '#78716c';
+  const svgNs = 'http://www.w3.org/2000/svg';
+  const svg  = document.createElementNS(svgNs, 'svg');
+  svg.classList.add('wall-curve-svg');
+  Object.assign(svg.style, {
+    position: 'absolute', left: '0', top: '0',
+    overflow: 'visible', pointerEvents: 'none',
+  });
+  svg.setAttribute('width',  w);
+  svg.setAttribute('height', h);
+  const path = document.createElementNS(svgNs, 'path');
+  const mid = h / 2;
+  // Quadratic bezier along the centreline; stroke-width = wall thickness.
+  path.setAttribute('d', `M 0,${mid} Q ${w / 2},${mid - c} ${w},${mid}`);
+  path.setAttribute('stroke',         color);
+  path.setAttribute('stroke-width',   h);
+  path.setAttribute('fill',           'none');
+  path.setAttribute('stroke-linecap', 'butt');
+  svg.appendChild(path);
+  el.appendChild(svg);
+}
+
+// Update the curve-handle div's position to sit at the arc's visual peak.
+function positionCurveHandle(handle, t) {
+  const w = t.width  || 160;
+  const h = t.height || 10;
+  // At t=0.5 on a quadratic bezier, y = 0.25*y0 + 0.5*cp + 0.25*y2.
+  // y0 = y2 = h/2, cp = h/2 - c  →  peak_y = h/2 - c/2.
+  const c = typeof t.curve === 'number' ? t.curve : 0;
+  handle.style.left = (w / 2)        + 'px';
+  handle.style.top  = (h / 2 - c / 2) + 'px';
+  handle.style.display = typeof t.curve === 'number' ? '' : 'none';
 }
 
 function renderStage() {
@@ -2820,13 +2921,12 @@ function renderStage() {
       el.dataset.tokenId = t.id;
       el.style.width = w + 'px';
       el.style.height = h + 'px';
-      el.style.background = t.color || '#78716c';
-      el.style.borderRadius = '2px';
-      el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.25)';
       el.style.transform = `rotate(${t.rot || 0}deg)`;
       el.style.transformOrigin = 'center';
       el.style.cursor = 'move';
+      el.style.overflow = 'visible';
       if (typeof t.opacity === 'number') el.style.opacity = t.opacity;
+      buildWallCurveSvg(el, t);   // sets background / SVG based on t.curve
       attachDrag(el, t);
       // Extend handles at each end of the wall — drag to lengthen/shorten.
       const makeHandle = (side) => {
@@ -2876,10 +2976,15 @@ function renderStage() {
               el.style.left = t.x + 'px';
               el.style.top = t.y + 'px';
             }
+            // Live-update curve SVG (if any) to match new width.
+            if (typeof t.curve === 'number') {
+              buildWallCurveSvg(el, t);
+              positionCurveHandle(el.querySelector('.wall-curve-handle'), t);
+            }
             // Live-update the door overlay so the SVG tracks the new wall
             // length and (for left-handle drags) shifted position.
             if (t.doors && t.doors.length) {
-              const oldSvg = el.querySelector('svg');
+              const oldSvg = el.querySelector('svg:not(.wall-curve-svg)');
               if (oldSvg) el.removeChild(oldSvg);
               buildWallDoorOverlay(el, t);
             }
@@ -2888,9 +2993,11 @@ function renderStage() {
           handle.onpointerup = () => {
             handle.onpointermove = null;
             handle.onpointerup = null;
+            // Rebuild curve SVG so it matches the new wall length.
+            if (typeof t.curve === 'number') buildWallCurveSvg(el, t);
             // Rebuild door overlay so its SVG matches the new wall length.
             if (t.doors && t.doors.length) {
-              const oldSvg = el.querySelector('svg');
+              const oldSvg = el.querySelector('svg:not(.wall-curve-svg)');
               if (oldSvg) el.removeChild(oldSvg);
               buildWallDoorOverlay(el, t);
             }
@@ -2958,16 +3065,72 @@ function renderStage() {
           rotHandle.style.cursor = 'grab';
         };
       };
+
+      // ── Bezier curve control handle ──────────────────────────────────────
+      // A purple circle at the arc's visual peak. Visible only when selected.
+      // Drag it perpendicular to the wall to bow/unbend the curve.
+      const curveHandle = document.createElement('div');
+      curveHandle.className = 'wall-curve-handle';
+      positionCurveHandle(curveHandle, t);
+      el.appendChild(curveHandle);
+      curveHandle.onpointerdown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        curveHandle.setPointerCapture(e.pointerId);
+        const z         = window._stageZoom || 1;
+        const startC    = typeof t.curve === 'number' ? t.curve : 0;
+        const startY    = e.clientY;
+        const rotRad    = ((t.rot || 0) * Math.PI) / 180;
+        // Project the drag direction onto the wall's perpendicular axis so
+        // dragging "upward" on the screen always bows in the right direction
+        // regardless of wall rotation.
+        const perpX = -Math.sin(rotRad);
+        const perpY =  Math.cos(rotRad);
+        curveHandle.onpointermove = (ev) => {
+          const dxScreen = ev.clientX - e.clientX;
+          const dyScreen = ev.clientY - e.clientY;
+          // Screen delta projected onto the wall's perpendicular axis (in px).
+          const delta = (dxScreen * perpX + dyScreen * perpY) / z;
+          // Bezier control-point offset = 2 × visual bow, so multiply by 2.
+          t.curve = startC - delta * 2;
+          buildWallCurveSvg(el, t);
+          positionCurveHandle(curveHandle, t);
+          scheduleViewfinderRender();
+        };
+        curveHandle.onpointerup = () => {
+          curveHandle.onpointermove = null;
+          curveHandle.onpointerup   = null;
+          if (typeof updateActiveKeyframe === 'function') updateActiveKeyframe(t);
+        };
+      };
+
+      // ── Double-click: toggle bezier curve ───────────────────────────────
+      el.ondblclick = (e) => {
+        e.stopPropagation();
+        if (typeof t.curve === 'number') {
+          // Remove curve — revert to straight wall.
+          delete t.curve;
+        } else {
+          // Add curve with a gentle initial bow (half the wall length / 8).
+          t.curve = Math.max(30, (t.width || 160) / 8);
+        }
+        if (typeof updateActiveKeyframe === 'function') updateActiveKeyframe(t);
+        renderStage();
+      };
+
     } else {
       el.textContent = t.name;
       el.title = 'Drag to move. Double-click to rename. Delete to remove.';
       attachDrag(el, t);
     }
-    el.ondblclick = (e) => {
-      e.stopPropagation();
-      const n = prompt('Name:', t.name);
-      if (n !== null) { t.name = n.trim() || t.name; renderStage(); }
-    };
+    // Generic double-click for non-wall tokens only (walls handle it above).
+    if (t.kind !== 'wall') {
+      el.ondblclick = (e) => {
+        e.stopPropagation();
+        const n = prompt('Name:', t.name);
+        if (n !== null) { t.name = n.trim() || t.name; renderStage(); }
+      };
+    }
     stage.appendChild(el);
   }
   // Draw dotted paths between keyframe positions AFTER tokens so the SVG
@@ -4013,7 +4176,8 @@ function buildViewfinderScene(scene) {
       const tileKey = t.wallImageTile ? 'T' : 'F';
       const doorsKey = (t.doors || []).map(d => `${d.t}|${d.widthFt}|${d.heightFt}|${d.angle}|${d.flip ? 1 : 0}|${d.reverse ? 1 : 0}|${d.color}|${d.opacity ?? 1}`).join('!');
       const winsKey = (t.windows || []).map(w => `${w.t}|${w.widthFt}|${w.sillH ?? 3}|${w.topH ?? 7}`).join('!');
-      const fp = `${wFt}|${dFt}|${hFt}|${colorHex}|${imgKey}|${imgGeo}|${tileKey}|D:${doorsKey}|W:${winsKey}`;
+      const curveKey = typeof t.curve === 'number' ? t.curve.toFixed(1) : 'S';
+      const fp = `${wFt}|${dFt}|${hFt}|${colorHex}|${imgKey}|${imgGeo}|${tileKey}|D:${doorsKey}|W:${winsKey}|C:${curveKey}`;
       if (mesh && mesh.userData.fp !== fp) {
         VF.scene.remove(mesh);
         VF.wallCache.delete(t.id);
@@ -4029,7 +4193,60 @@ function buildViewfinderScene(scene) {
         inner.position.y = 0; // anchor at bottom; child boxes carry their own y
         const doors = t.doors || [];
         const windows = t.windows || [];
-        if (doors.length === 0 && windows.length === 0) {
+        if (typeof t.curve === 'number') {
+          // ── Curved wall: approximate bezier with N short box segments ─────
+          // P0=(0,0), P1cp=(wFt/2,-cFt), P2=(wFt,0) in wall-local XZ space.
+          // x(s) = s·wFt (linear) so door.t maps directly to bezier parameter s.
+          const N   = 16;
+          const cFt = t.curve / VF_SCALE;
+          const bPt3 = (s) => ({
+            x: 2*s*(1-s)*(wFt/2) + s*s*wFt,
+            z: 2*s*(1-s)*(-cFt),
+          });
+          // Build opening intervals in bezier-parameter space.
+          const opens3 = [
+            ...(doors||[]).map(d => ({
+              s0: Math.max(0, d.t - (d.widthFt||3)/(2*wFt)),
+              s1: Math.min(1, d.t + (d.widthFt||3)/(2*wFt)),
+              type: 'door', oy0: 0, oy1: d.heightFt||7, color: d.color||'#c8a462', op: d.opacity??1,
+            })),
+            ...(windows||[]).map(w => ({
+              s0: Math.max(0, w.t - (w.widthFt||4)/(2*wFt)),
+              s1: Math.min(1, w.t + (w.widthFt||4)/(2*wFt)),
+              type: 'window', oy0: w.sillH??3, oy1: w.topH??7,
+            })),
+          ].sort((a,b) => a.s0 - b.s0);
+          for (let i = 0; i < N; i++) {
+            const s0 = i/N, s1 = (i+1)/N, sMid = (s0+s1)/2;
+            const A = bPt3(s0), B = bPt3(s1);
+            const dx = B.x-A.x, dz = B.z-A.z;
+            const segLen = Math.sqrt(dx*dx + dz*dz) || 0.001;
+            const ang    = Math.atan2(dz, dx);
+            const cx3    = (A.x+B.x)/2 - wFt/2;
+            const cz3    = (A.z+B.z)/2;
+            const addBox = (yBot, yH, material) => {
+              const m = new THREE.Mesh(new THREE.BoxGeometry(segLen, yH, dFt), material||mat);
+              m.position.set(cx3, yBot + yH/2, cz3);
+              m.rotation.y = -ang;
+              inner.add(m);
+            };
+            // Find if this segment falls within any opening.
+            const opening = opens3.find(o => sMid >= o.s0 && sMid <= o.s1);
+            if (!opening) {
+              addBox(0, hFt);
+            } else if (opening.type === 'door') {
+              if (opening.oy1 < hFt) addBox(opening.oy1, hFt - opening.oy1);
+            } else {
+              // Window: sill + lintel + glass.
+              if (opening.oy0 > 0) addBox(0, opening.oy0);
+              if (opening.oy1 < hFt) addBox(opening.oy1, hFt - opening.oy1);
+              const glassMat3 = new THREE.MeshLambertMaterial({
+                color: 0xa8d8ea, side: THREE.DoubleSide, transparent: true, opacity: 0.38,
+              });
+              addBox(opening.oy0, opening.oy1 - opening.oy0, glassMat3);
+            }
+          }
+        } else if (doors.length === 0 && windows.length === 0) {
           const m = new THREE.Mesh(new THREE.BoxGeometry(wFt, hFt, dFt), mat);
           m.position.y = hFt / 2;
           inner.add(m);
@@ -4127,9 +4344,11 @@ function buildViewfinderScene(scene) {
           }
         }
         group.add(inner);
-        // Optional image quad on the front face, draggable / resizable via
-        // the image widget. wallImageX / Y / W / H are in feet, in the wall's
-        // local space (origin = bottom-left of front face).
+        // Optional image on the front face.
+        // Straight walls: one flat PlaneGeometry (used by the live-drag widget).
+        // Curved walls: N sliced planes following the bezier — UV per geometry,
+        //               one shared material. imageQuad is null so the widget
+        //               forces a full cache-bust on resize instead.
         if (t.wallImage) {
           const tex = new THREE.TextureLoader().load(t.wallImage, () => scheduleViewfinderRender());
           tex.colorSpace = THREE.SRGBColorSpace || tex.colorSpace;
@@ -4137,23 +4356,173 @@ function buildViewfinderScene(scene) {
           const ih = (typeof t.wallImageH === 'number') ? t.wallImageH : hFt;
           const ix = (typeof t.wallImageX === 'number') ? t.wallImageX : 0;
           const iy = (typeof t.wallImageY === 'number') ? t.wallImageY : 0;
-          let plane;
-          if (t.wallImageTile) {
-            tex.wrapS = THREE.RepeatWrapping;
-            tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(wFt / iw, hFt / ih);
-            const planeGeo = new THREE.PlaneGeometry(wFt, hFt);
-            const planeMat = new THREE.MeshLambertMaterial({ map: tex, transparent: true });
-            plane = new THREE.Mesh(planeGeo, planeMat);
-            plane.position.set(0, hFt / 2, dFt / 2 + 0.005);
+
+          // Image y-extent and UV-v helper (shared by straight + curved paths).
+          const imgYBot = t.wallImageTile ? 0 : iy;
+          const imgYTop = t.wallImageTile ? hFt : iy + ih;
+          const vForY = (y) => t.wallImageTile
+            ? y / ih
+            : Math.max(0, Math.min(1, (y - iy) / ih));
+
+          if (typeof t.curve === 'number') {
+            // ── Curved wall image: N sliced planes following the arc ─────────
+            const N_I = 16;
+            const cFt_I = t.curve / VF_SCALE;
+            const bPtI  = (s) => ({
+              x: 2*s*(1-s)*(wFt/2) + s*s*wFt,
+              z: 2*s*(1-s)*(-cFt_I),
+            });
+            if (t.wallImageTile) {
+              tex.wrapS = THREE.RepeatWrapping;
+              tex.wrapT = THREE.RepeatWrapping;
+            }
+            const sharedMat = new THREE.MeshLambertMaterial({
+              map: tex, transparent: true, side: THREE.DoubleSide,
+            });
+            // Openings in bezier-parameter space — same calculation as wall geometry.
+            const imgOpens = [
+              ...(t.doors || []).map(d => ({
+                s0: Math.max(0, d.t - (d.widthFt||3)/(2*wFt)),
+                s1: Math.min(1, d.t + (d.widthFt||3)/(2*wFt)),
+                type: 'door', oy1: d.heightFt||7,
+              })),
+              ...(t.windows || []).map(w => ({
+                s0: Math.max(0, w.t - (w.widthFt||4)/(2*wFt)),
+                s1: Math.min(1, w.t + (w.widthFt||4)/(2*wFt)),
+                type: 'window', oy0: w.sillH??3, oy1: w.topH??7,
+              })),
+            ].sort((a,b) => a.s0 - b.s0);
+
+            for (let i = 0; i < N_I; i++) {
+              const s0 = i/N_I, s1 = (i+1)/N_I, sMid = (s0+s1)/2;
+              const A = bPtI(s0), B = bPtI(s1);
+              const ddx = B.x-A.x, ddz = B.z-A.z;
+              const segLen = Math.sqrt(ddx*ddx + ddz*ddz) || 0.001;
+              const ang    = Math.atan2(ddz, ddx);
+              const cx3I   = (A.x+B.x)/2 - wFt/2;
+              const cz3I   = (A.z+B.z)/2;
+              let u0, u1;
+              if (t.wallImageTile) {
+                u0 = s0 * wFt / iw;
+                u1 = s1 * wFt / iw;
+              } else {
+                u0 = (s0*wFt - ix) / iw;
+                u1 = (s1*wFt - ix) / iw;
+                if (u1 <= 0 || u0 >= 1) continue;
+                u0 = Math.max(0, u0);
+                u1 = Math.min(1, u1);
+              }
+              const wallNx = -Math.sin(ang);
+              const wallNz =  Math.cos(ang);
+              const ofs = dFt / 2 + 0.005;
+              const addImgPlane = (yBot, yH) => {
+                const vBot = vForY(yBot), vTop = vForY(yBot + yH);
+                if (vTop <= vBot) return;
+                const geo = new THREE.PlaneGeometry(segLen, yH);
+                const uv = geo.attributes.uv;
+                uv.setXY(0, u0, vTop); uv.setXY(1, u1, vTop);
+                uv.setXY(2, u0, vBot); uv.setXY(3, u1, vBot);
+                uv.needsUpdate = true;
+                const sp = new THREE.Mesh(geo, sharedMat);
+                sp.position.set(cx3I + wallNx*ofs, yBot + yH/2, cz3I + wallNz*ofs);
+                sp.rotation.y = -ang;
+                inner.add(sp);
+              };
+              const opening = imgOpens.find(o => sMid >= o.s0 && sMid <= o.s1);
+              if (!opening) {
+                addImgPlane(imgYBot, imgYTop - imgYBot);
+              } else if (opening.type === 'door') {
+                if (opening.oy1 < imgYTop) addImgPlane(opening.oy1, imgYTop - opening.oy1);
+              } else {
+                if (opening.oy0 > imgYBot) addImgPlane(imgYBot, opening.oy0 - imgYBot);
+                if (opening.oy1 < imgYTop) addImgPlane(opening.oy1, imgYTop - opening.oy1);
+              }
+            }
+            group.userData.imageQuad = null;
           } else {
-            const planeGeo = new THREE.PlaneGeometry(iw, ih);
-            const planeMat = new THREE.MeshLambertMaterial({ map: tex, transparent: true });
-            plane = new THREE.Mesh(planeGeo, planeMat);
-            plane.position.set(ix + iw / 2 - wFt / 2, iy + ih / 2, dFt / 2 + 0.005);
+            // ── Straight wall image ──────────────────────────────────────────
+            // Openings in x-feet space (same coordinates as wall geometry).
+            const imgOpens2 = [
+              ...(t.doors || []).map(d => ({
+                x0: Math.max(0, d.t*wFt - (d.widthFt||3)/2),
+                x1: Math.min(wFt, d.t*wFt + (d.widthFt||3)/2),
+                type: 'door', oy1: d.heightFt||7,
+              })),
+              ...(t.windows || []).map(w => ({
+                x0: Math.max(0, w.t*wFt - (w.widthFt||4)/2),
+                x1: Math.min(wFt, w.t*wFt + (w.widthFt||4)/2),
+                type: 'window', oy0: w.sillH??3, oy1: w.topH??7,
+              })),
+            ].sort((a,b) => a.x0 - b.x0)
+             .filter(o => o.x1 > (t.wallImageTile ? 0 : ix) &&
+                          o.x0 < (t.wallImageTile ? wFt : ix + iw));
+
+            if (!imgOpens2.length) {
+              // No openings — single plane (imageQuad live-drag widget works).
+              let plane;
+              if (t.wallImageTile) {
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(wFt / iw, hFt / ih);
+                const planeGeo = new THREE.PlaneGeometry(wFt, hFt);
+                const planeMat = new THREE.MeshLambertMaterial({ map: tex, transparent: true });
+                plane = new THREE.Mesh(planeGeo, planeMat);
+                plane.position.set(0, hFt / 2, dFt / 2 + 0.005);
+              } else {
+                const planeGeo = new THREE.PlaneGeometry(iw, ih);
+                const planeMat = new THREE.MeshLambertMaterial({ map: tex, transparent: true });
+                plane = new THREE.Mesh(planeGeo, planeMat);
+                plane.position.set(ix + iw/2 - wFt/2, iy + ih/2, dFt/2 + 0.005);
+              }
+              inner.add(plane);
+              group.userData.imageQuad = plane;
+            } else {
+              // Openings present — multi-band approach cuts through the image.
+              if (t.wallImageTile) {
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+              }
+              const sharedMat = new THREE.MeshLambertMaterial({
+                map: tex, transparent: true, side: THREE.DoubleSide,
+              });
+              const addBand = (x0, x1, yBot, yH) => {
+                let u0b, u1b;
+                if (t.wallImageTile) {
+                  u0b = x0/iw; u1b = x1/iw;
+                } else {
+                  u0b = Math.max(0, (x0-ix)/iw);
+                  u1b = Math.min(1, (x1-ix)/iw);
+                  if (u1b <= u0b) return;
+                }
+                const vBot = vForY(yBot), vTop = vForY(yBot + yH);
+                if (vTop <= vBot) return;
+                const geo = new THREE.PlaneGeometry(x1-x0, yH);
+                const uv = geo.attributes.uv;
+                uv.setXY(0, u0b, vTop); uv.setXY(1, u1b, vTop);
+                uv.setXY(2, u0b, vBot); uv.setXY(3, u1b, vBot);
+                uv.needsUpdate = true;
+                const sp = new THREE.Mesh(geo, sharedMat);
+                sp.position.set(x0 + (x1-x0)/2 - wFt/2, yBot + yH/2, dFt/2 + 0.005);
+                inner.add(sp);
+              };
+              const xStart = t.wallImageTile ? 0 : ix;
+              const xEnd   = t.wallImageTile ? wFt : ix + iw;
+              let cursor = xStart;
+              for (const o of imgOpens2) {
+                const oX0 = Math.max(xStart, o.x0), oX1 = Math.min(xEnd, o.x1);
+                if (oX0 > cursor) addBand(cursor, oX0, imgYBot, imgYTop - imgYBot);
+                if (o.type === 'door') {
+                  if (o.oy1 < imgYTop) addBand(oX0, oX1, o.oy1, imgYTop - o.oy1);
+                } else {
+                  if (o.oy0 > imgYBot) addBand(oX0, oX1, imgYBot, o.oy0 - imgYBot);
+                  if (o.oy1 < imgYTop) addBand(oX0, oX1, o.oy1, imgYTop - o.oy1);
+                }
+                cursor = Math.max(cursor, oX1);
+              }
+              if (cursor < xEnd) addBand(cursor, xEnd, imgYBot, imgYTop - imgYBot);
+              group.userData.imageQuad = null;
+            }
           }
-          inner.add(plane);
-          group.userData.imageQuad = plane;
         }
         group.userData.fp = fp;
         group.userData.inner = inner;
@@ -6106,7 +6475,7 @@ function printSceneFloorplan(sceneIdx) {
         // Header
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(14);
-        pdf.text(`Scene ${sceneIdx + 1} — ${slug}`, pageW / 2, margin + 6, { align: 'center' });
+        pdf.text(slug, pageW / 2, margin + 6, { align: 'center' });
         // Fit the screenshot inside the page (minus header + margins).
         const imgX = margin;
         const imgY = margin + 24;
@@ -6139,6 +6508,297 @@ function printSceneFloorplan(sceneIdx) {
       }
     });
   });
+}
+
+// Export floorplan on page 1 + storyboard grid of viewfinder frames on page 2.
+async function exportFloorplanAndStoryboard(sceneIdx) {
+  const scene = state.scenes[sceneIdx];
+  if (!scene) return;
+  if (typeof html2canvas !== 'function' || !window.jspdf || !window.jspdf.jsPDF) {
+    alert('PDF tooling failed to load — check the network and try again.');
+    return;
+  }
+  const stage = document.getElementById('stage');
+  const vfCanvas = document.getElementById('vf-canvas');
+  if (!stage || !vfCanvas) return;
+
+  const prevActive = state.activeIdx;
+  const prevZoom = window._stageZoom || 1;
+  const prevTransform = stage.style.transform;
+  const prevPlayheadT = typeof scene.playheadT === 'number' ? scene.playheadT : 0;
+
+  // Switch to target scene at zoom 1
+  state.activeIdx = sceneIdx;
+  if (typeof ensureSceneCharacters === 'function') ensureSceneCharacters(scene);
+  if (typeof renderStage === 'function') renderStage();
+  window._stageZoom = 1;
+  stage.style.transform = '';
+
+  const slug = (typeof stripSceneNum === 'function')
+    ? stripSceneNum(scene.heading || '') : (scene.heading || 'scene');
+  const safeSlug = slug.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+
+  // Helper: pause a moment for layout/render to settle
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+  try {
+    // ── Page 1: Floorplan ────────────────────────────────────────────────────
+    await wait(80);
+    const floorCanvas = await html2canvas(stage, {
+      backgroundColor: '#ffffff',
+      scale: window.devicePixelRatio || 1,
+      logging: false,
+      useCORS: true,
+    });
+
+    // Crop to the bounding box of all tokens so empty stage space is excluded.
+    const cropCanvas = (() => {
+      const PAD = 80; // padding in stage pixels around the token bounds
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const t of (scene.tokens || [])) {
+        if (typeof t.x !== 'number' || typeof t.y !== 'number') continue;
+        const tw = t.kind === 'actor' ? 60 : t.kind === 'camera' ? 50 : (t.width  || 60);
+        const th = t.kind === 'actor' ? 60 : t.kind === 'camera' ? 90 : (t.height || 60);
+        minX = Math.min(minX, t.x);
+        minY = Math.min(minY, t.y);
+        maxX = Math.max(maxX, t.x + tw);
+        maxY = Math.max(maxY, t.y + th);
+      }
+      if (!isFinite(minX)) return floorCanvas; // no tokens — use full canvas
+      const scale = window.devicePixelRatio || 1;
+      const sx = Math.max(0, Math.round((minX - PAD) * scale));
+      const sy = Math.max(0, Math.round((minY - PAD) * scale));
+      const sw = Math.min(floorCanvas.width  - sx, Math.round((maxX - minX + PAD * 2) * scale));
+      const sh = Math.min(floorCanvas.height - sy, Math.round((maxY - minY + PAD * 2) * scale));
+      if (sw <= 0 || sh <= 0) return floorCanvas;
+      const cropped = document.createElement('canvas');
+      cropped.width  = sw;
+      cropped.height = sh;
+      cropped.getContext('2d').drawImage(floorCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      return cropped;
+    })();
+
+    const { jsPDF } = window.jspdf;
+    const sw = cropCanvas.width, sh = cropCanvas.height;
+    const orient = sw >= sh ? 'l' : 'p';
+    const pdf = new jsPDF({ orientation: orient, unit: 'pt', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 24;
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(14);
+    pdf.text(slug, pageW / 2, margin + 6, { align: 'center' });
+
+    const imgY = margin + 24;
+    const availW = pageW - margin * 2;
+    const availH = pageH - imgY - margin;
+    const ar = cropCanvas.width / cropCanvas.height;
+    let drawW = availW, drawH = availW / ar;
+    if (drawH > availH) { drawH = availH; drawW = availH * ar; }
+    const ox = margin + (availW - drawW) / 2;
+    const oy = imgY + (availH - drawH) / 2;
+    pdf.addImage(cropCanvas.toDataURL('image/png'), 'PNG', ox, oy, drawW, drawH);
+
+    // ── Page 2+: Storyboard with script ─────────────────────────────────────
+    // Collect __EDIT__ keyframes, fall back to a single t=0 frame
+    const editKfs = (scene.keyframes && Array.isArray(scene.keyframes['__EDIT__']))
+      ? scene.keyframes['__EDIT__'].slice().sort((a, b) => a.t - b.t) : [];
+    const seekTs = editKfs.length > 0 ? editKfs.map(k => k.t) : [0];
+
+    // Split scene.text into non-empty lines, then assign a proportional slice
+    // to each shot based on its t range (t_i → t_{i+1}).
+    const scriptLines = (scene.text || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const totalLines = scriptLines.length;
+    function scriptChunk(shotIdx) {
+      const tStart = seekTs[shotIdx];
+      const tEnd = shotIdx + 1 < seekTs.length ? seekTs[shotIdx + 1] : 1;
+      const iStart = Math.round(tStart * totalLines);
+      const iEnd   = Math.round(tEnd   * totalLines);
+      return scriptLines.slice(iStart, iEnd);
+    }
+
+    // Helper: seek viewfinder to t with the correct camera and capture
+    async function captureAt(t, camName) {
+      scene.playheadT = t;
+      if (typeof applySceneAtT === 'function') applySceneAtT(sceneIdx, t);
+      if (camName && typeof VF !== 'undefined') VF.activeCamName = camName;
+      if (typeof renderViewfinder === 'function') renderViewfinder();
+      await wait(60);
+      return vfCanvas.toDataURL('image/png');
+    }
+
+    // Capture viewfinder frames — always capture start + end, then drop the
+    // end if the two frames are pixel-identical (nothing moved in that shot).
+    const prevCamName = (typeof VF !== 'undefined') ? VF.activeCamName : null;
+    const frames = [];
+    for (let i = 0; i < seekTs.length; i++) {
+      const kf = editKfs[i] || null;
+      const camName = (kf && kf.snapshot && kf.snapshot.camName) ? kf.snapshot.camName : null;
+      const tStart = seekTs[i];
+      const tEnd   = i + 1 < seekTs.length ? seekTs[i + 1] : 1;
+
+      const startUrl = await captureAt(tStart, camName);
+      const endUrl   = await captureAt(tEnd,   camName);
+
+      frames.push({ kf, script: scriptChunk(i), startUrl, endUrl: endUrl === startUrl ? null : endUrl });
+    }
+    scene.playheadT = prevPlayheadT;
+    if (prevCamName !== null && typeof VF !== 'undefined') VF.activeCamName = prevCamName;
+    if (typeof renderViewfinder === 'function') renderViewfinder();
+
+    // Layout constants (landscape A4)
+    const SB_MARGIN   = 28;   // page margin pt
+    const ROW_H       = 140;  // height of each shot row pt
+    const IMG_W_FRAC  = 0.38; // fraction of row width used by the image
+    const GAP         = 10;   // gap between image and text column
+    const vfAr        = vfCanvas.width / vfCanvas.height;
+
+    // Storyboard pages — one or more, overflowing onto new pages as needed
+    pdf.addPage('a4', 'l');
+    let sbW = pdf.internal.pageSize.getWidth();
+    let sbH = pdf.internal.pageSize.getHeight();
+    const rowW    = sbW - SB_MARGIN * 2;
+    const imgColW = rowW * IMG_W_FRAC;
+    const txtColX = SB_MARGIN + imgColW + GAP;
+    const txtColW = rowW - imgColW - GAP;
+
+    // Page header
+    const drawPageHeader = () => {
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(12);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(`${slug}  ·  Storyboard`, sbW / 2, SB_MARGIN - 8, { align: 'center' });
+    };
+    drawPageHeader();
+
+    let curY = SB_MARGIN + 8;
+
+    frames.forEach((frame, idx) => {
+      // New page if this row won't fit
+      if (curY + ROW_H > sbH - SB_MARGIN) {
+        pdf.addPage('a4', 'l');
+        sbW = pdf.internal.pageSize.getWidth();
+        sbH = pdf.internal.pageSize.getHeight();
+        drawPageHeader();
+        curY = SB_MARGIN + 8;
+      }
+
+      // Camera name label in the camera's own colour
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      const kf = frame.kf;
+      const camLabel = (kf && kf.snapshot && kf.snapshot.camName) ? kf.snapshot.camName : '';
+      if (camLabel) {
+        // Resolve colour: token.color → CAMERA_COLORS by number → grey
+        const CAM_PALETTE = ['#ec4899', '#f97316', '#06b6d4'];
+        const camTok = (scene.tokens || []).find(t => t.kind === 'camera' && t.name === camLabel);
+        let hex = (camTok && camTok.color) ? camTok.color : (() => {
+          const m = camLabel.match(/(\d+)/);
+          const ci = m ? (parseInt(m[1], 10) - 1) % CAM_PALETTE.length : 0;
+          return CAM_PALETTE[(ci + CAM_PALETTE.length) % CAM_PALETTE.length];
+        })();
+        // Parse hex → RGB for jsPDF
+        hex = hex.replace('#', '');
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        const cr = parseInt(hex.slice(0, 2), 16);
+        const cg = parseInt(hex.slice(2, 4), 16);
+        const cb = parseInt(hex.slice(4, 6), 16);
+        pdf.setTextColor(cr, cg, cb);
+        pdf.text(camLabel, SB_MARGIN, curY + 9);
+        pdf.setTextColor(0, 0, 0);
+      }
+
+      // Viewfinder image(s) — one frame normally, two (start + end) when something moves
+      const twoFrames = !!frame.endUrl;
+      const imgAreaW = twoFrames ? (imgColW - 4) / 2 : imgColW;
+      const imgH = Math.min(ROW_H - 14, imgAreaW / vfAr);
+      const imgW = imgH * vfAr;
+
+      const drawFrame = (dataUrl, slotX) => {
+        const fx = slotX + (imgAreaW - imgW) / 2;
+        const fy = curY + 12;
+        pdf.addImage(dataUrl, 'PNG', fx, fy, imgW, imgH);
+        pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.5);
+        pdf.rect(fx, fy, imgW, imgH);
+      };
+
+      drawFrame(frame.startUrl, SB_MARGIN);
+      if (twoFrames) {
+        drawFrame(frame.endUrl, SB_MARGIN + imgAreaW + 4);
+        // "→" arrow between frames
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(10);
+        pdf.setTextColor(160, 160, 160);
+        pdf.text('→', SB_MARGIN + imgAreaW + 1, curY + 12 + imgH / 2 + 3, { align: 'center' });
+      }
+
+      // Script text column — use formatSceneBody() (the real formatter) and
+      // parse its HTML output into typed blocks for PDF rendering.
+      const IND = { action: 0, transition: 0, character: txtColW * 0.32, dialogue: txtColW * 0.18, paren: txtColW * 0.22 };
+      const FS  = { action: 7.5, transition: 7, character: 7.5, dialogue: 7.5, paren: 7 };
+
+      const sbBlocks = [];
+      if (typeof formatSceneBody === 'function' && frame.script.length > 0) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = formatSceneBody(frame.script.join('\n'));
+        for (const el of tmp.children) {
+          if (el.matches('p.action')) {
+            sbBlocks.push({ type: 'action', text: el.textContent.trim() });
+          } else if (el.matches('p.transition')) {
+            sbBlocks.push({ type: 'transition', text: el.textContent.trim() });
+          } else if (el.matches('div.dialogue')) {
+            const charEl = el.querySelector('.character');
+            if (charEl) sbBlocks.push({ type: 'character', text: charEl.textContent.trim() });
+            for (const span of el.querySelectorAll('.paren, .dline')) {
+              sbBlocks.push({
+                type: span.classList.contains('paren') ? 'paren' : 'dialogue',
+                text: span.textContent.trim(),
+              });
+            }
+          }
+        }
+      }
+
+      pdf.setTextColor(30, 30, 30);
+      let ty = curY + 14;
+      const lineH = 10;
+      const bottomClip = curY + ROW_H - 4;
+
+      for (const blk of sbBlocks) {
+        if (ty >= bottomClip) break;
+        const indX = txtColX + (IND[blk.type] || 0);
+        const wrapW = txtColW - (IND[blk.type] || 0) - 2;
+        const bold = blk.type === 'character' || blk.type === 'transition';
+        pdf.setFont('courier', bold ? 'bold' : 'normal');
+        pdf.setFontSize(FS[blk.type] || 7.5);
+        const wrapped = pdf.splitTextToSize(blk.text, wrapW);
+        for (const wl of wrapped) {
+          if (ty >= bottomClip) break;
+          pdf.text(wl, indX, ty);
+          ty += lineH;
+        }
+        ty += blk.type === 'dialogue' || blk.type === 'action' ? 3 : 1;
+      }
+
+      curY += ROW_H + 4;
+    });
+
+    pdf.save(`${safeSlug} - Storyboard.pdf`);
+
+  } catch (e) {
+    alert('Export failed: ' + e.message);
+  }
+
+  // Restore UI
+  window._stageZoom = prevZoom;
+  stage.style.transform = prevTransform;
+  if (prevActive !== sceneIdx) {
+    state.activeIdx = prevActive;
+    if (typeof renderStage === 'function') renderStage();
+  }
+  if (typeof renderViewfinder === 'function') renderViewfinder();
 }
 
 // Record the viewfinder canvas for the duration of a scene's playback
@@ -6365,7 +7025,7 @@ function exportSceneVideo(sceneIdx) {
   // ── Serialiser ───────────────────────────────────────────────────────────
   function buildPayload() {
     const obj = JSON.parse(JSON.stringify(state, (key, val) => {
-      if (typeof key === 'string' && key.startsWith('_')) return undefined;
+      if (typeof key === 'string' && key.startsWith('_') && !key.startsWith('__')) return undefined;
       if (key === 'charactersInitialised') return undefined;
       return val;
     }));
@@ -6950,6 +7610,50 @@ function buildWallDoorOverlay(el, t) {
     overflow: 'visible', pointerEvents: 'none',
   });
   el.appendChild(svg);
+
+  // ── Bezier helpers (only used when wall is curved) ─────────────────────────
+  const isCurved = typeof t.curve === 'number';
+  const cv = t.curve || 0;
+  // Point on the wall's bezier centreline at parameter u (0-1).
+  // Since x(u) = u·wallW (linear), door.t maps directly to bezier parameter.
+  const bpt  = (u) => ({ x: u * wallW, y: wallH/2 - 2*u*(1-u)*cv });
+  // Normalised tangent direction at u.
+  const btan = (u) => {
+    const tx = wallW, ty = 2*cv*(2*u - 1);
+    const l  = Math.sqrt(tx*tx + ty*ty) || 1;
+    return { x: tx/l, y: ty/l };
+  };
+  // Build a polyline points string along the curve between u0 and u1.
+  const curvePts = (u0, u1, N=8) => {
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      const u = u0 + (u1-u0)*i/N;
+      const p = bpt(u);
+      pts.push(`${p.x.toFixed(2)},${p.y.toFixed(2)}`);
+    }
+    return pts.join(' ');
+  };
+  // Grab-and-refresh drag helper used for curved-wall handles.
+  // Returns a pointerdown handler that captures on svg, calls move(localX) on
+  // every pointermove, and calls refreshAll() to rebuild the whole overlay.
+  const makeCurvedSlide = (onMove) => (e) => {
+    e.preventDefault(); e.stopPropagation();
+    svg.setPointerCapture(e.pointerId);
+    const yaw  = (t.rot||0)*Math.PI/180;
+    const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+    const r    = el.getBoundingClientRect();
+    const cxS  = r.left + r.width/2, cyS = r.top + r.height/2;
+    svg.onpointermove = (ev) => {
+      const dxS = ev.clientX - cxS, dyS = ev.clientY - cyS;
+      const lx  = cosY*dxS + sinY*dyS + wallW/2;
+      onMove(lx);
+      refreshAll();
+      // Invalidate 3D mesh so it rebuilds next frame.
+      if (VF.wallCache) { const m = VF.wallCache.get(t.id); if (m) { VF.scene.remove(m); VF.wallCache.delete(t.id); } }
+      scheduleViewfinderRender();
+    };
+    svg.onpointerup = () => { svg.onpointermove = null; svg.onpointerup = null; };
+  };
   const refreshAll = () => {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     const windows = t.windows || [];
@@ -6963,6 +7667,50 @@ function buildWallDoorOverlay(el, t) {
     const x0 = Math.max(0, cx - gap / 2);
     const x1 = Math.min(wallW, cx + gap / 2);
     const wallMid = wallH / 2;
+
+    if (isCurved) {
+      const u0 = Math.max(0, x0/wallW), u1 = Math.min(1, x1/wallW), uw = win.t||0.5;
+      const wPt = bpt(uw), tan = btan(uw);
+      const perp = { x: -tan.y, y: tan.x };
+      // Erase wall under window with white polyline.
+      const eraser = document.createElementNS(svgNs, 'polyline');
+      eraser.setAttribute('points', curvePts(u0,u1)); eraser.setAttribute('stroke','#ffffff');
+      eraser.setAttribute('stroke-width', wallH+2); eraser.setAttribute('fill','none');
+      eraser.setAttribute('stroke-linecap','butt'); svg.appendChild(eraser);
+      // Glass-tinted stroke.
+      const glass = document.createElementNS(svgNs, 'polyline');
+      glass.setAttribute('points', curvePts(u0,u1)); glass.setAttribute('stroke','#a8d8ea');
+      glass.setAttribute('stroke-width', wallH); glass.setAttribute('fill','none');
+      glass.setAttribute('stroke-linecap','butt'); glass.setAttribute('stroke-opacity','0.45');
+      glass.style.cursor = 'ew-resize'; glass.style.pointerEvents = 'auto'; svg.appendChild(glass);
+      // Jamb lines perpendicular to tangent at each edge.
+      for (const u of [u0, u1]) {
+        const p = bpt(u), tn = btan(u), pp = {x:-tn.y, y:tn.x};
+        const jamb = document.createElementNS(svgNs, 'line');
+        jamb.setAttribute('x1', p.x - pp.x*(wallH/2+2)); jamb.setAttribute('y1', p.y - pp.y*(wallH/2+2));
+        jamb.setAttribute('x2', p.x + pp.x*(wallH/2+2)); jamb.setAttribute('y2', p.y + pp.y*(wallH/2+2));
+        jamb.setAttribute('stroke','#5b8fa6'); jamb.setAttribute('stroke-width','1'); svg.appendChild(jamb);
+      }
+      // Mullion at centre.
+      const mul = document.createElementNS(svgNs, 'line');
+      mul.setAttribute('x1', wPt.x - perp.x*(wallH/2)); mul.setAttribute('y1', wPt.y - perp.y*(wallH/2));
+      mul.setAttribute('x2', wPt.x + perp.x*(wallH/2)); mul.setAttribute('y2', wPt.y + perp.y*(wallH/2));
+      mul.setAttribute('stroke','#5b8fa6'); mul.setAttribute('stroke-width','1'); svg.appendChild(mul);
+      // Position handle.
+      const ph = document.createElementNS(svgNs, 'circle');
+      ph.setAttribute('cx', wPt.x); ph.setAttribute('cy', wPt.y); ph.setAttribute('r', 4);
+      ph.setAttribute('fill','#fff'); ph.setAttribute('stroke','#5b8fa6'); ph.setAttribute('stroke-width','1.5');
+      ph.style.cursor = 'ew-resize'; ph.style.pointerEvents = 'auto'; svg.appendChild(ph);
+      const minT = (win.widthFt*VF_SCALE/2)/wallW + 0.001, maxT = 1 - minT;
+      const slideMove = (lx) => { win.t = Math.max(minT, Math.min(maxT, lx/wallW)); };
+      const slideDown = makeCurvedSlide(slideMove);
+      ph.onpointerdown    = slideDown;
+      glass.onpointerdown = slideDown;
+      // Right-click → resize widget (same as straight wall).
+      const winCtx = (ev) => { ev.preventDefault(); ev.stopPropagation(); showWindowResizeWidget(win, t, ev.clientX, ev.clientY); };
+      for (const n of [glass, mul, ph, eraser]) n.oncontextmenu = winCtx;
+      return;
+    }
     // Erase the wall under the window with a translucent glass-tinted rect.
     const gapRect = document.createElementNS(svgNs, 'rect');
     gapRect.setAttribute('x', x0);
@@ -7069,6 +7817,120 @@ function buildWallDoorOverlay(el, t) {
     let x0 = Math.max(0, cx - gap / 2);
     let x1 = Math.min(wallW, cx + gap / 2);
     const wallMid = wallH / 2;
+
+    if (isCurved) {
+      const u0 = Math.max(0, x0/wallW), u1 = Math.min(1, x1/wallW), ud = door.t||0.5;
+      const doorOpacity = (typeof door.opacity === 'number') ? door.opacity : 1;
+      const doorDir  = door.reverse ? -1 : 1;
+      const flipSign = (door.flip !== door.reverse) ? -1 : 1;
+      const hingeU   = door.reverse ? u1 : u0;
+      const hPt = bpt(hingeU), hTan = btan(hingeU);
+      const hPerp = { x: -hTan.y * flipSign, y: hTan.x * flipSign };
+      const hAlong = { x: hTan.x * doorDir, y: hTan.y * doorDir };
+      const angleDeg = Math.max(0, Math.min(90, (typeof door.angle === 'number') ? door.angle : 90));
+      const alpha = angleDeg * Math.PI / 180;
+      // Leaf direction: rotate hAlong toward hPerp by alpha.
+      const leafDir = {
+        x: hAlong.x*Math.cos(alpha) + hPerp.x*Math.sin(alpha),
+        y: hAlong.y*Math.cos(alpha) + hPerp.y*Math.sin(alpha),
+      };
+      const leafTip = { x: hPt.x + leafDir.x*gap, y: hPt.y + leafDir.y*gap };
+      // Erase gap.
+      const eraser = document.createElementNS(svgNs, 'polyline');
+      eraser.setAttribute('points', curvePts(u0,u1)); eraser.setAttribute('stroke','#ffffff');
+      eraser.setAttribute('stroke-width', wallH+2); eraser.setAttribute('fill','none');
+      eraser.setAttribute('stroke-linecap','butt'); eraser.setAttribute('fill-opacity', String(doorOpacity));
+      svg.appendChild(eraser);
+      // Jamb ticks at each edge.
+      for (const u of [u0, u1]) {
+        const p = bpt(u), tn = btan(u), pp = {x:-tn.y, y:tn.x};
+        const jamb = document.createElementNS(svgNs, 'line');
+        jamb.setAttribute('x1', p.x - pp.x*(wallH/2+2)); jamb.setAttribute('y1', p.y - pp.y*(wallH/2+2));
+        jamb.setAttribute('x2', p.x + pp.x*(wallH/2+2)); jamb.setAttribute('y2', p.y + pp.y*(wallH/2+2));
+        jamb.setAttribute('stroke', door.color||'#c8a462'); jamb.setAttribute('stroke-width','1.5'); svg.appendChild(jamb);
+      }
+      // Swing arc: quarter circle from closed→open.
+      const arcStart = { x: hPt.x + hAlong.x*gap, y: hPt.y + hAlong.y*gap };
+      const arcEnd   = { x: hPt.x + hPerp.x*gap,  y: hPt.y + hPerp.y*gap  };
+      const sweepCW  = (flipSign > 0) !== door.reverse ? 0 : 1;
+      const arc = document.createElementNS(svgNs, 'path');
+      arc.setAttribute('d', `M ${arcStart.x} ${arcStart.y} A ${gap} ${gap} 0 0 ${sweepCW} ${arcEnd.x} ${arcEnd.y}`);
+      arc.setAttribute('fill','none'); arc.setAttribute('stroke', door.color||'#c8a462');
+      arc.setAttribute('stroke-width','1'); arc.setAttribute('opacity', String(0.4*doorOpacity)); svg.appendChild(arc);
+      // Door leaf.
+      const leaf = document.createElementNS(svgNs, 'line');
+      leaf.setAttribute('x1', hPt.x); leaf.setAttribute('y1', hPt.y);
+      leaf.setAttribute('x2', leafTip.x); leaf.setAttribute('y2', leafTip.y);
+      leaf.setAttribute('stroke', door.color||'#c8a462'); leaf.setAttribute('stroke-width','2.5');
+      leaf.setAttribute('stroke-linecap','round'); leaf.setAttribute('stroke-opacity', String(doorOpacity));
+      svg.appendChild(leaf);
+      // Angle handle at leaf tip.
+      const angH = document.createElementNS(svgNs, 'circle');
+      angH.setAttribute('cx', leafTip.x); angH.setAttribute('cy', leafTip.y); angH.setAttribute('r', 5);
+      angH.setAttribute('fill', door.color||'#c8a462'); angH.setAttribute('stroke','#fff');
+      angH.setAttribute('stroke-width','1.5'); angH.setAttribute('fill-opacity', String(doorOpacity));
+      angH.style.cursor = 'grab'; angH.style.pointerEvents = 'auto'; svg.appendChild(angH);
+      // Position handle (diamond) at door centre.
+      const dCentPt = bpt(ud);
+      const phSize = 7;
+      const posH = document.createElementNS(svgNs, 'rect');
+      posH.setAttribute('x', dCentPt.x - phSize/2); posH.setAttribute('y', dCentPt.y - phSize/2);
+      posH.setAttribute('width', phSize); posH.setAttribute('height', phSize);
+      posH.setAttribute('transform', `rotate(45 ${dCentPt.x} ${dCentPt.y})`);
+      posH.setAttribute('fill','#fff'); posH.setAttribute('stroke', door.color||'#c8a462');
+      posH.setAttribute('stroke-width','1.5'); posH.style.cursor = 'ew-resize';
+      posH.style.pointerEvents = 'auto'; svg.appendChild(posH);
+      // Drag: slide door position.
+      const minT = (door.widthFt*VF_SCALE/2)/wallW + 0.001, maxT = 1 - minT;
+      posH.onpointerdown = makeCurvedSlide((lx) => { door.t = Math.max(minT, Math.min(maxT, lx/wallW)); });
+      // Drag: change angle via angle handle.
+      angH.onpointerdown = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        svg.setPointerCapture(e.pointerId);
+        const yaw = (t.rot||0)*Math.PI/180, cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+        const r = el.getBoundingClientRect();
+        const cxS = r.left + r.width/2, cyS = r.top + r.height/2;
+        svg.onpointermove = (ev) => {
+          const dxS = ev.clientX - cxS, dyS = ev.clientY - cyS;
+          const lx = cosY*dxS + sinY*dyS + wallW/2, ly = (-sinY*dxS + cosY*dyS) + wallH/2;
+          // Vector from hinge to mouse in local space.
+          const mx = lx - hPt.x, my = ly - hPt.y;
+          // Project onto along and perp axes of the hinge.
+          const da = mx*hAlong.x + my*hAlong.y;
+          const dp = mx*hPerp.x  + my*hPerp.y;
+          let ang = Math.atan2(dp, da) * 180 / Math.PI;
+          door.angle = Math.max(0, Math.min(90, Math.round(ang)));
+          refreshAll();
+          if (VF.wallCache) { const m = VF.wallCache.get(t.id); if (m) { VF.scene.remove(m); VF.wallCache.delete(t.id); } }
+          scheduleViewfinderRender();
+        };
+        svg.onpointerup = () => { svg.onpointermove = null; svg.onpointerup = null; };
+      };
+      // Right-click → colour palette.
+      const ctxStopper = (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        showDoorColourPalette(door, ev.clientX, ev.clientY, () => {
+          if (VF.wallCache) { const m = VF.wallCache.get(t.id); if (m) { VF.scene.remove(m); VF.wallCache.delete(t.id); } }
+          refreshAll(); scheduleViewfinderRender();
+        }, () => {
+          t.doors = (t.doors||[]).filter(d => d !== door);
+          if (!t.doors.length) delete t.doors;
+          if (VF.wallCache) { const m = VF.wallCache.get(t.id); if (m) { VF.scene.remove(m); VF.wallCache.delete(t.id); } }
+          refreshAll(); scheduleViewfinderRender(); hideRadialMenu();
+        });
+      };
+      for (const n of [leaf, arc, angH, posH, eraser]) { n.style.pointerEvents = n.style.pointerEvents||'auto'; n.oncontextmenu = ctxStopper; }
+      // Double-click diamond → cycle hinge orientation.
+      posH.ondblclick = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const STATES = [[false,false],[true,false],[false,true],[true,true]];
+        const cur = STATES.findIndex(([f,r]) => f===(!!door.flip) && r===(!!door.reverse));
+        const [nf,nr] = STATES[((cur<0?0:cur)+1)%4];
+        door.flip = nf; door.reverse = nr;
+        refreshAll(); scheduleViewfinderRender();
+      };
+      return;
+    }
     // White "gap" rectangle that visually erases the wall under the door.
     const gapRect = document.createElementNS(svgNs, 'rect');
     gapRect.setAttribute('x', x0);
@@ -12315,29 +13177,7 @@ function renderKeyframes(strip, scene, name, sceneIdx) {
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
-      // EDIT armed + camera-strip kf click → drop an EDIT cut at this
-      // keyframe's exact time instead of starting a drag/restore.
-      if (strip.dataset.kind === 'camera' && scene._editStripSelected) {
-        if (!scene.keyframes) scene.keyframes = {};
-        if (!Array.isArray(scene.keyframes['__EDIT__'])) scene.keyframes['__EDIT__'] = [];
-        const eks = scene.keyframes['__EDIT__'];
-        let live = null;
-        for (const ek of eks) { if (ek.t <= kf.t) live = ek; else break; }
-        const liveCam = live && live.snapshot && live.snapshot.camName;
-        if (liveCam !== name) {
-          const existing = eks.find(k => Math.abs(k.t - kf.t) < KEYFRAME_MIN_GAP);
-          if (existing) existing.snapshot = { camName: name };
-          else {
-            eks.push({ t: kf.t, snapshot: { camName: name } });
-            eks.sort((a, b) => a.t - b.t);
-          }
-          if (typeof collapseEditKfs === 'function') collapseEditKfs(scene);
-        }
-        if (typeof VF !== 'undefined') VF.activeCamName = name;
-        renderSceneList();
-        renderViewfinder();
-        return;
-      }
+      // (EDIT mode no longer blocks dragging — see onpointerup for click handling)
       moved = false;
       const startY = e.clientY;
       let lastY = e.clientY;
@@ -12397,6 +13237,22 @@ function renderKeyframes(strip, scene, name, sceneIdx) {
           const ph = sEl && sEl.querySelector('.playhead');
           if (ph) ph.style.top = (kf.t * 100) + '%';
           renderSceneList();
+        } else if (strip.dataset.kind === 'camera' && scene._editStripSelected) {
+          // EDIT armed + click (no drag) → drop an EDIT cut at this keyframe's time.
+          if (!scene.keyframes) scene.keyframes = {};
+          if (!Array.isArray(scene.keyframes['__EDIT__'])) scene.keyframes['__EDIT__'] = [];
+          const eks = scene.keyframes['__EDIT__'];
+          let live = null;
+          for (const ek of eks) { if (ek.t <= kf.t) live = ek; else break; }
+          if ((live && live.snapshot && live.snapshot.camName) !== name) {
+            const existing = eks.find(k => Math.abs(k.t - kf.t) < KEYFRAME_MIN_GAP);
+            if (existing) existing.snapshot = { camName: name };
+            else { eks.push({ t: kf.t, snapshot: { camName: name } }); eks.sort((a, b) => a.t - b.t); }
+            if (typeof collapseEditKfs === 'function') collapseEditKfs(scene);
+          }
+          if (typeof VF !== 'undefined') VF.activeCamName = name;
+          renderSceneList();
+          renderViewfinder();
         } else {
           scene.activeKeyframe = { name, kf };
           scene.playheadT = kf.t;
@@ -12678,7 +13534,7 @@ async function extractPdfText(file) {
     const sortedY = [...rows.keys()].sort((a, b) => b - a);
     const lines = sortedY.map(y => {
       const items = rows.get(y).sort((a, b) => a.x - b.x);
-      const text = items.map(i => i.str).join('').trimEnd();
+      const text = items.map(i => i.str).join('').trimEnd().replace(/\*+$/, '').trimEnd();
       const x = items.length ? items[0].x : 0;
       const key = text.trim();
       if (key && !lineXMap.has(key)) lineXMap.set(key, x);
