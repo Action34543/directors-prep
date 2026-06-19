@@ -305,7 +305,7 @@
   </main>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="assets/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <!-- html2canvas + jsPDF for the right-click "Export Floorplan PDF" action. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -319,7 +319,7 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/BokehShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/BokehPass.js"></script>
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/pdf.worker.min.js';
 
 
 const state = {
@@ -5337,9 +5337,10 @@ function showCameraPositionWidget(x, y, token) {
   const menu = document.getElementById('radial-menu');
   if (!menu) return;
   menu.innerHTML = '';
-  menu.style.left = (x - 110) + 'px';
-  menu.style.top = (y - 110) + 'px';
   menu.classList.add('open');
+  menu.classList.add('add'); // use 300×300 so the outer ring has visible gap around the ball
+  menu.style.left = (x - 150) + 'px';
+  menu.style.top = (y - 150) + 'px';
   // Read camera colour — prefer the colour stamped on the token (preserved
   // across renames) so the widget matches the on-canvas icon and strip.
   let color;
@@ -5373,9 +5374,7 @@ function showCameraPositionWidget(x, y, token) {
   bg.setAttribute('stroke-width', '6');
   bg.setAttribute('d', `M ${cx} ${cy - dialR} A ${dialR} ${dialR} 0 1 1 ${cx - 0.01} ${cy - dialR}`);
   svgEl.appendChild(bg);
-  const fill = document.createElementNS(svgNs, 'path');
-  fill.setAttribute('fill', 'none'); fill.setAttribute('stroke', color); fill.setAttribute('stroke-width', '6');
-  svgEl.appendChild(fill);
+  const fill = null; // no colored fill arc — grey track only
   const thumb = document.createElementNS(svgNs, 'circle');
   thumb.setAttribute('r', dialThumbR);
   thumb.setAttribute('fill', 'white'); thumb.setAttribute('stroke', color); thumb.setAttribute('stroke-width', '2');
@@ -5468,10 +5467,10 @@ function showCameraPositionWidget(x, y, token) {
   // The handle orbits the MAIN camera circle (the pan/tilt ball + elevation
   // dial), not the iris button. The widget centre is the menu's centre
   // since the radial menu is 220×220 with the pos-widget filling its
-  // middle; the elevation dial sits at radius 86, so we place the handle
-  // just outside it (radius 100) to keep it clear of the dial track.
-  const _irisCenter = () => ({ cx: 110, cy: 110 });
-  const _orbitR = 100;
+  // Menu is 300×300; SVG viewBox is 220×220, so dial radius 86 SVG units
+  // = 86 × (300/220) ≈ 117px display. Centre of menu is at (150, 150).
+  const _irisCenter = () => ({ cx: 150, cy: 150 });
+  const _orbitR = Math.round(86 * 300 / 220);
   const _updateFocusHandle = () => {
     if (!token.focusMode) { focusHandle.style.display = 'none'; return; }
     focusHandle.style.display = 'block';
@@ -5643,17 +5642,7 @@ function showCameraPositionWidget(x, y, token) {
     const thAng = (ZERO_ANG + rel + 720) % 360;
     thumb.setAttribute('cx', cx + dialR * Math.cos(rad(thAng)));
     thumb.setAttribute('cy', cy + dialR * Math.sin(rad(thAng)));
-    if (Math.abs(rel) < 0.5) { fill.setAttribute('d', ''); }
-    else {
-      const sx = cx + dialR * Math.cos(rad(ZERO_ANG));
-      const sy = cy + dialR * Math.sin(rad(ZERO_ANG));
-      const ex = cx + dialR * Math.cos(rad(thAng));
-      const ey = cy + dialR * Math.sin(rad(thAng));
-      const absRel = Math.abs(rel);
-      const sweep = rel >= 0 ? 1 : 0;
-      const large = absRel > 180 ? 1 : 0;
-      fill.setAttribute('d', `M ${sx} ${sy} A ${dialR} ${dialR} 0 ${large} ${sweep} ${ex} ${ey}`);
-    }
+    // fill arc removed — grey track only, thumb position shows height
   };
   const setHeight = (h) => {
     token.camHeight = Math.max(MIN_H, Math.min(MAX_H, h));
@@ -8843,6 +8832,11 @@ function showWallHeightWidget(token) {
   const menu = document.getElementById('radial-menu');
   if (!menu) return;
   menu.innerHTML = '';
+  if (!menu.classList.contains('add')) {
+    menu.classList.add('add');
+    menu.style.left = (parseInt(menu.style.left) - 40) + 'px';
+    menu.style.top  = (parseInt(menu.style.top)  - 40) + 'px';
+  }
   const color = token.color || '#78716c';
   // ---- Outer "off-ground" dial (matches the actor position widget) ----
   const cx = 110, cy = 110, dialR = 86, dialThumbR = 7;
@@ -9076,6 +9070,11 @@ function showFurnitureSizeWidget(token) {
   if (!menu) return;
   menu.innerHTML = '';
   menu.classList.add('open');
+  if (!menu.classList.contains('add')) {
+    menu.classList.add('add');
+    menu.style.left = (parseInt(menu.style.left) - 40) + 'px';
+    menu.style.top  = (parseInt(menu.style.top)  - 40) + 'px';
+  }
   const color = token.color || '#b0b8c1';
   // ── Outer circular dial sets elevation off the ground (0–10 ft) ─────────
   const cx = 110, cy = 110, dialR = 86, dialThumbR = 7;
@@ -13548,6 +13547,9 @@ async function extractPdfText(file) {
     });
     pages.push(lines.join('\n'));
   }
+  // If the first page has no slug line, treat it as a title page and skip it.
+  const slugRe = /\b(INT\.?\/EXT\.?|EXT\.?\/INT\.?|INT\.?|EXT\.?|EST\.?|I\.?\/E\.?)\b/i;
+  if (pages.length > 1 && !slugRe.test(pages[0])) pages.shift();
   return pages.join('\n');
 }
 

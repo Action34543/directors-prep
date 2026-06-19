@@ -345,29 +345,17 @@ function initAutoUpdater() {
   // Don't check for updates in dev (no publish config active yet).
   if (!app.isPackaged) return;
 
-  autoUpdater.autoDownload = true;       // download silently in the background
-  autoUpdater.autoInstallOnAppQuit = true; // install when the user quits
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on('update-available', (info) => {
     dialog.showMessageBox(win, {
       type:    'info',
       title:   'Update Available',
       message: `Version ${info.version} is available.`,
-      detail:  'Downloading in the background. You\'ll be notified when it\'s ready.',
+      detail:  'Visit directorsprep.app/download to get the latest version.',
       buttons: ['OK'],
     });
-  });
-
-  autoUpdater.on('update-downloaded', () => {
-    const { response } = dialog.showMessageBoxSync(win, {
-      type:    'info',
-      title:   'Update Ready',
-      message: 'A new version has been downloaded.',
-      detail:  'Restart now to apply the update, or it will install automatically when you quit.',
-      buttons: ['Restart Now', 'Later'],
-      defaultId: 0,
-    });
-    if (response === 0) autoUpdater.quitAndInstall();
   });
 
   autoUpdater.on('error', (err) => {
