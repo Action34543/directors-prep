@@ -27,6 +27,12 @@
   .scene-item { padding: 10px 16px; border-left: 3px solid transparent; cursor: pointer; border-bottom: 1px solid #f3f3f1; }
   .scene-item:hover { background: #f8f8f6; }
   .scene-item.active { border-left-color: var(--accent); padding-bottom: 14px; }
+  .scene-item.prepped { border-left-color: #16a34a; }
+  .scene-item.active.prepped { border-left-color: var(--accent); }
+  .prep-btn { display: none; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; border: 1px solid #d1d5db; background: #fff; font-size: 11px; font-weight: 600; color: #6b7280; cursor: pointer; white-space: nowrap; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+  .prep-btn:hover { border-color: #16a34a; color: #16a34a; }
+  .prep-btn.is-prepped { background: #dcfce7; border-color: #16a34a; color: #15803d; }
+  .scene-item .prep-btn { display: inline-flex; }
   .scene-item:not(.active) .scene-content { display: none; }
   .scene-item:not(.active) .scene-heading { margin-bottom: 0; }
   .scene-item:not(.active) .scene-num { margin-bottom: 0; }
@@ -200,6 +206,8 @@
   .token { position: absolute; user-select: none; z-index: 2; }
   .token .wall-handle, .token .wall-rot-handle, .token .wall-rot-stem, .token .furniture-resize-handle, .token .light-aim-handle { display: none; }
   .token.selected .wall-handle, .token.selected .wall-rot-handle, .token.selected .wall-rot-stem, .token.selected .furniture-resize-handle, .token.selected .light-aim-handle { display: block; }
+  .token.multi-selected { outline: 2px solid #3b82f6; outline-offset: 3px; border-radius: 3px; }
+  #canvas-toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: rgba(30,30,30,0.88); color: #fff; font-size: 13px; font-weight: 600; padding: 8px 18px; border-radius: 8px; pointer-events: none; z-index: 9999; opacity: 0; transition: opacity 0.2s; letter-spacing: 0.02em; }
   .wall-curve-handle { display: none; position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #a78bfa; border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.4); cursor: ns-resize; z-index: 4; touch-action: none; transform: translate(-50%, -50%); }
   .token.selected .wall-curve-handle { display: block; }
   .wall-curve-hint { display: none; position: absolute; left: 50%; transform: translateX(-50%); top: -20px; font-size: 10px; font-weight: 600; color: #a78bfa; white-space: nowrap; pointer-events: none; }
@@ -221,8 +229,7 @@
   .token.actor.locked .rot-handle { display: none !important; }
   .token.actor .rotator { width: 60px; height: 60px; transform-origin: center; position: relative; }
   .token.actor svg { width: 60px; height: 60px; display: block; }
-  .token.actor .rot-handle { display: none; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); width: 12px; height: 12px; border-radius: 50%; background: #fbbf24; border: 2px solid white; cursor: grab; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
-  .token.actor .rot-handle::before { content: ''; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); width: 2px; height: 8px; background: #fbbf24; }
+  .token.actor .rot-handle { display: none; position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #fbbf24; border: 2px solid white; cursor: grab; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
   .token.actor .name { text-align: center; font-size: 11px; font-weight: 600; margin-top: 2px; color: #1c1c1a; background: rgba(255,255,255,0.85); padding: 1px 4px; border-radius: 3px; }
   .token.selected { z-index: 5; }
   .token.selected.actor .rot-handle { display: block; }
@@ -285,6 +292,7 @@
     <div id="stage-wrap">
       <div id="stage"></div>
       <div id="radial-menu"></div>
+      <div id="canvas-toast"></div>
       <div id="viewfinder">
         <canvas id="vf-canvas"></canvas>
         <div id="vf-empty">Click a camera to see its view</div>
@@ -679,10 +687,11 @@ function renderSceneList() {
     const el = document.createElement('div');
     el.className = 'scene-item'
       + (i === state.activeIdx ? ' active' : '')
-      + (sceneHasAnimation(s) ? ' has-anim' : '');
+      + (sceneHasAnimation(s) ? ' has-anim' : '')
+      + (s.prepped ? ' prepped' : '');
     el.id = 'scene-' + i;
     el.innerHTML = `
-      <div class="scene-num"><button class="play-btn" type="button">▶ Play</button><select class="play-speed" title="Playback speed"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option><option value="4">4x</option></select></div>
+      <div class="scene-num"><button class="play-btn" type="button">▶ Play</button><select class="play-speed" title="Playback speed"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option><option value="4">4x</option></select><button class="prep-btn${s.prepped ? ' is-prepped' : ''}" type="button" title="Mark scene as prepped">${s.prepped ? '✓ Prepped' : '◯ Prep'}</button></div>
       <div class="scene-heading"></div>
       <div class="scene-content">
         <div class="char-strips edit-strips"></div>
@@ -726,6 +735,15 @@ function renderSceneList() {
       const sceneEl = document.getElementById('scene-' + i);
       const btn = sceneEl ? sceneEl.querySelector('.play-btn') : e.currentTarget;
       playScene(i, btn);
+    };
+    const prepBtn = el.querySelector('.prep-btn');
+    if (prepBtn) prepBtn.onclick = (e) => {
+      e.stopPropagation();
+      s.prepped = !s.prepped;
+      prepBtn.textContent = s.prepped ? '✓ Prepped' : '◯ Prep';
+      prepBtn.classList.toggle('is-prepped', s.prepped);
+      el.classList.toggle('prepped', s.prepped);
+      saveState();
     };
     const ph = el.querySelector('.playhead');
     if (ph && typeof s.playheadT === 'number') ph.style.top = (s.playheadT * 100) + '%';
@@ -1185,6 +1203,35 @@ function renderActive() {
   const el = document.getElementById('scene-' + state.activeIdx);
 }
 
+function centerStageOnTokens() {
+  const s = state.scenes[state.activeIdx];
+  const wrap  = document.getElementById('stage-wrap');
+  const stage = document.getElementById('stage');
+  if (!s || !wrap || !stage) return;
+  const tokens = (s.tokens || []).filter(t => typeof t.x === 'number' && typeof t.y === 'number');
+  const z = window._stageZoom || 1;
+  let cx, cy;
+  if (!tokens.length) {
+    // No tokens: centre on the stage itself.
+    cx = 1200; cy = 1200;
+  } else {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const t of tokens) {
+      const w = t.kind === 'actor' ? 60 : t.kind === 'camera' ? 50 : (t.width  || 60);
+      const h = t.kind === 'actor' ? 80 : t.kind === 'camera' ? 90 : (t.height || 60);
+      minX = Math.min(minX, t.x);
+      minY = Math.min(minY, t.y);
+      maxX = Math.max(maxX, t.x + w);
+      maxY = Math.max(maxY, t.y + h);
+    }
+    cx = (minX + maxX) / 2;
+    cy = (minY + maxY) / 2;
+  }
+  // Stage sits 16 px into the wrap; zoom is applied via scale(z) at top-left.
+  wrap.scrollLeft = (16 + cx) * z - wrap.clientWidth  / 2;
+  wrap.scrollTop  = (16 + cy) * z - wrap.clientHeight / 2;
+}
+
 function selectScene(i) {
   state.activeIdx = i;
   ensureSceneCharacters(state.scenes[i]);
@@ -1199,6 +1246,8 @@ function selectScene(i) {
   const list = document.getElementById('scene-list');
   const sceneEl = document.getElementById('scene-' + i);
   if (list && sceneEl) list.scrollTop = sceneEl.offsetTop - list.offsetTop;
+  // Centre the canvas viewport on the tokens in this scene.
+  requestAnimationFrame(centerStageOnTokens);
 }
 
 // Walk a scene's lines and collect distinct character names from cues.
@@ -1285,6 +1334,15 @@ function ensureSceneCharacters(scene) {
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 
+function _showCanvasToast(msg) {
+  const el = document.getElementById('canvas-toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => { el.style.opacity = '0'; }, 2000);
+}
+
 function addToken(kind) {
   const s = state.scenes[state.activeIdx];
   if (!s) { alert('Import a screenplay first'); return; }
@@ -1303,6 +1361,7 @@ function addToken(kind) {
 }
 
 let selectedToken = null;
+let selectedTokens = [];
 
 const CAMERA_COLORS = ['#ec4899', '#f97316', '#06b6d4'];
 
@@ -1628,6 +1687,7 @@ function renderStage() {
   const stage = document.getElementById('stage');
   stage.innerHTML = '';
   selectedToken = null;
+  selectedTokens = [];
   const s = state.scenes[state.activeIdx];
   if (!s || !s.tokens) { renderViewfinder(); return; }
   for (const t of s.tokens) {
@@ -1640,8 +1700,8 @@ function renderStage() {
       el.innerHTML = `
         <div class="rotator" style="transform: rotate(${t.rot || 0}deg)">
           ${actorSvg(t.color || colorForCharacter(t.name))}
-          <div class="rot-handle" title="Drag to rotate"></div>
         </div>
+        <div class="rot-handle" title="Drag to rotate"></div>
         <div class="name"></div>`;
       const nameEl = el.querySelector('.name');
       nameEl.textContent = t.name;
@@ -1650,6 +1710,7 @@ function renderStage() {
       nameEl.style.pointerEvents = 'auto';
       nameEl.style.zIndex = '5';
       nameEl.style.position = 'relative';
+      _placeActorRotHandle(el.querySelector('.rot-handle'), t.rot || 0);
       attachActorDrag(el, t);
       attachNameRename(el, nameEl, t, 'actor');
       el.oncontextmenu = (e) => { e.preventDefault(); const r = el.getBoundingClientRect(); showRadialMenu(r.left + r.width / 2, r.top + r.height / 2, t); };
@@ -2369,7 +2430,7 @@ function renderStage() {
         } else if (prim === 'triangle') {
           body = `<polygon points="${ww/2},${sw} ${ww-sw},${hh-sw} ${sw},${hh-sw}" fill="${color}" stroke="${stroke}" stroke-width="${sw}"/>`;
         } else if (prim === 'stairs') {
-          const ns = 5;
+          const ns = t.steps || 5;
           body = `<rect x="${sw}" y="${sw}" width="${ww-2*sw}" height="${hh-2*sw}" fill="${color}" stroke="${stroke}" stroke-width="${sw}"/>`;
           for (let i = 1; i < ns; i++) {
             const ly = sw + (hh - 2*sw) * i / ns;
@@ -2377,6 +2438,7 @@ function renderStage() {
           }
           body += `<line x1="${ww/2}" y1="${hh-8}" x2="${ww/2}" y2="8" stroke="${stroke}" stroke-width="1"/>`;
           body += `<polyline points="${ww/2 - 4},15 ${ww/2},8 ${ww/2 + 4},15" fill="none" stroke="${stroke}" stroke-width="1"/>`;
+          body += `<text x="${ww/2}" y="${hh - 4}" text-anchor="middle" font-size="${Math.min(10, hh * 0.12)}" fill="${stroke}" font-family="sans-serif">${ns}</text>`;
         } else if (prim === 'pyramid') {
           body = `<rect x="${sw}" y="${sw}" width="${ww-2*sw}" height="${hh-2*sw}" fill="${color}" stroke="${stroke}" stroke-width="${sw}"/>`;
           body += `<line x1="${sw}" y1="${sw}" x2="${ww-sw}" y2="${hh-sw}" stroke="${stroke}" stroke-width="1"/>`;
@@ -2471,6 +2533,45 @@ function renderStage() {
           scheduleViewfinderRender();
         };
         el.appendChild(sReset);
+        // Step count controls — only for stairs.
+        if (prim === 'stairs') {
+          const makeStepBtn = (label, delta, offsetX) => {
+            const btn = document.createElement('div');
+            btn.className = 'furniture-resize-handle';
+            Object.assign(btn.style, {
+              position: 'absolute',
+              left: offsetX,
+              top: '-9px',
+              width: '18px', height: '18px',
+              borderRadius: '50%',
+              background: '#fff',
+              border: '2px solid rgba(0,0,0,0.6)',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+              cursor: 'pointer',
+              zIndex: '4',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '14px',
+              lineHeight: '1',
+              fontWeight: '700',
+              color: '#1c1c1a',
+              userSelect: 'none',
+            });
+            btn.textContent = label;
+            btn.title = delta > 0 ? 'Add a step' : 'Remove a step';
+            btn.onpointerdown = (e) => { e.preventDefault(); e.stopPropagation(); };
+            btn.onclick = (e) => {
+              e.preventDefault(); e.stopPropagation();
+              t.steps = Math.max(2, Math.min(20, (t.steps || 5) + delta));
+              renderStage();
+              scheduleViewfinderRender();
+            };
+            el.appendChild(btn);
+          };
+          makeStepBtn('+', +1, 'calc(100% - 28px)');
+          makeStepBtn('−', -1, 'calc(100% - 50px)');
+        }
         // Track-for-keyframing button — same diamond as vehicles, sits below
         // the bottom edge so it doesn't overlap the reset/resize corners.
         const sTrackBtn = document.createElement('div');
@@ -2928,74 +3029,129 @@ function renderStage() {
       if (typeof t.opacity === 'number') el.style.opacity = t.opacity;
       buildWallCurveSvg(el, t);   // sets background / SVG based on t.curve
       attachDrag(el, t);
-      // Extend handles at each end of the wall — drag to lengthen/shorten.
-      const makeHandle = (side) => {
+      // Endpoint handles — drag either end of the wall freely in 2D space.
+      // The other end stays fixed; position, length, and rotation all update.
+      const wallH = t.height || 10;
+      // Compute world-space position of each endpoint from t.x/y/width/rot.
+      const getEndpoints = () => {
+        const rotRad = ((t.rot || 0) * Math.PI) / 180;
+        const cx = t.x + (t.width || 160) / 2;
+        const cy = t.y + wallH / 2;
+        const half = (t.width || 160) / 2;
+        const dx = Math.cos(rotRad) * half;
+        const dy = Math.sin(rotRad) * half;
+        return {
+          left:  { x: cx - dx, y: cy - dy },
+          right: { x: cx + dx, y: cy + dy },
+        };
+      };
+      // Apply two world-space endpoints back onto t.x/y/width/rot and update el.
+      const applyEndpoints = (p0, p1) => {
+        const dx = p1.x - p0.x, dy = p1.y - p0.y;
+        const len = Math.max(10, Math.sqrt(dx * dx + dy * dy));
+        const cx = (p0.x + p1.x) / 2, cy = (p0.y + p1.y) / 2;
+        t.rot   = Math.atan2(dy, dx) * 180 / Math.PI;
+        t.width = len;
+        t.x = cx - len / 2;
+        t.y = cy - wallH / 2;
+        el.style.left      = t.x + 'px';
+        el.style.top       = t.y + 'px';
+        el.style.width     = len + 'px';
+        el.style.transform = `rotate(${t.rot}deg)`;
+        if (typeof t.curve === 'number') {
+          buildWallCurveSvg(el, t);
+          positionCurveHandle(el.querySelector('.wall-curve-handle'), t);
+        }
+        if (t.doors && t.doors.length) {
+          const oldSvg = el.querySelector('svg:not(.wall-curve-svg)');
+          if (oldSvg) el.removeChild(oldSvg);
+          buildWallDoorOverlay(el, t);
+        }
+        scheduleViewfinderRender();
+      };
+      const makeEndpointHandle = (side) => {
         const handle = document.createElement('div');
         handle.className = 'wall-handle';
         Object.assign(handle.style, {
           position: 'absolute',
           top: '50%',
-          [side]: '-7px',
+          [side]: '-8px',
           transform: 'translateY(-50%)',
-          width: '12px', height: '12px',
+          width: '14px', height: '14px',
           borderRadius: '50%',
           background: '#fff',
           border: '2px solid rgba(0,0,0,0.6)',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
-          cursor: 'ew-resize',
-          zIndex: '3',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+          cursor: 'crosshair',
+          zIndex: '4',
           touchAction: 'none',
         });
         el.appendChild(handle);
         handle.onpointerdown = (e) => {
           e.preventDefault();
           e.stopPropagation();
+          document.querySelectorAll('.token.selected').forEach(n => n.classList.remove('selected'));
+          el.classList.add('selected');
+          selectedToken = t;
+          selectedTokens = [t];
           handle.setPointerCapture(e.pointerId);
-          const rotRad = ((t.rot || 0) * Math.PI) / 180;
-          const dirX = Math.cos(rotRad), dirY = Math.sin(rotRad);
-          const sign = side === 'right' ? 1 : -1;
-          const startW = t.width || 160;
-          const startX = t.x;
-          const startY = t.y;
-          const startMouse = { x: e.clientX, y: e.clientY };
+          const stage = document.getElementById('stage');
+          const _z = window._stageZoom || 1;
+          // Snap threshold in stage logical pixels.
+          const SNAP_PX = 14 / _z;
+          const ANGLE_SNAP_DEG = 45;
+          // Collect all other wall endpoints in the scene for proximity snap.
+          const scene = state.scenes[state.activeIdx];
+          const otherEndpoints = [];
+          if (scene && scene.tokens) {
+            for (const ot of scene.tokens) {
+              if (ot.kind !== 'wall' || ot.id === t.id) continue;
+              const rr = ((ot.rot || 0) * Math.PI) / 180;
+              const ocx = ot.x + (ot.width || 160) / 2;
+              const ocy = ot.y + (ot.height || 10) / 2;
+              const oh  = (ot.width || 160) / 2;
+              otherEndpoints.push(
+                { x: ocx - Math.cos(rr) * oh, y: ocy - Math.sin(rr) * oh },
+                { x: ocx + Math.cos(rr) * oh, y: ocy + Math.sin(rr) * oh },
+              );
+            }
+          }
+          const snapPoint = (mx, my, fixed) => {
+            // 1. Snap to another wall endpoint.
+            let best = null, bestD = SNAP_PX;
+            for (const ep of otherEndpoints) {
+              const d = Math.hypot(ep.x - mx, ep.y - my);
+              if (d < bestD) { bestD = d; best = ep; }
+            }
+            if (best) return { x: best.x, y: best.y };
+            // 2. Snap the angle to nearest 45° while keeping length free.
+            const dx = mx - fixed.x, dy = my - fixed.y;
+            const len = Math.hypot(dx, dy);
+            if (len < 1) return { x: mx, y: my };
+            const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+            const snapped  = Math.round(angleDeg / ANGLE_SNAP_DEG) * ANGLE_SNAP_DEG;
+            const diff     = Math.abs(((angleDeg - snapped) + 180) % 360 - 180);
+            if (diff < 8) {
+              const rad = snapped * Math.PI / 180;
+              return { x: fixed.x + Math.cos(rad) * len, y: fixed.y + Math.sin(rad) * len };
+            }
+            return { x: mx, y: my };
+          };
           handle.onpointermove = (ev) => {
-            const dxScreen = ev.clientX - startMouse.x;
-            const dyScreen = ev.clientY - startMouse.y;
-            // Project the mouse delta onto the wall's length axis.
-            const along = dxScreen * dirX + dyScreen * dirY;
-            const delta = along * sign;
-            let newW = Math.max(20, startW + delta);
-            t.width = newW;
-            el.style.width = newW + 'px';
-            // When extending from the left edge, also shift x/y so the right
-            // end stays fixed in world space.
-            if (side === 'left') {
-              const shift = startW - newW;
-              t.x = startX + shift * dirX;
-              t.y = startY + shift * dirY;
-              el.style.left = t.x + 'px';
-              el.style.top = t.y + 'px';
-            }
-            // Live-update curve SVG (if any) to match new width.
-            if (typeof t.curve === 'number') {
-              buildWallCurveSvg(el, t);
-              positionCurveHandle(el.querySelector('.wall-curve-handle'), t);
-            }
-            // Live-update the door overlay so the SVG tracks the new wall
-            // length and (for left-handle drags) shifted position.
-            if (t.doors && t.doors.length) {
-              const oldSvg = el.querySelector('svg:not(.wall-curve-svg)');
-              if (oldSvg) el.removeChild(oldSvg);
-              buildWallDoorOverlay(el, t);
-            }
-            scheduleViewfinderRender();
+            const sr = stage.getBoundingClientRect();
+            const mx = (ev.clientX - sr.left) / _z;
+            const my = (ev.clientY - sr.top)  / _z;
+            const eps   = getEndpoints();
+            const fixed = side === 'left' ? eps.right : eps.left;
+            const snapped = snapPoint(mx, my, fixed);
+            const p0 = side === 'left' ? snapped : fixed;
+            const p1 = side === 'left' ? fixed   : snapped;
+            applyEndpoints(p0, p1);
           };
           handle.onpointerup = () => {
             handle.onpointermove = null;
-            handle.onpointerup = null;
-            // Rebuild curve SVG so it matches the new wall length.
+            handle.onpointerup   = null;
             if (typeof t.curve === 'number') buildWallCurveSvg(el, t);
-            // Rebuild door overlay so its SVG matches the new wall length.
             if (t.doors && t.doors.length) {
               const oldSvg = el.querySelector('svg:not(.wall-curve-svg)');
               if (oldSvg) el.removeChild(oldSvg);
@@ -3004,8 +3160,8 @@ function renderStage() {
           };
         };
       };
-      makeHandle('right');
-      makeHandle('left');
+      makeEndpointHandle('left');
+      makeEndpointHandle('right');
       el.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showWallRadialMenu(e.clientX, e.clientY, t); };
       // Render door overlays on top of the wall (drag-handles included).
       if ((t.doors && t.doors.length) || (t.windows && t.windows.length)) buildWallDoorOverlay(el, t);
@@ -4636,7 +4792,7 @@ function buildViewfinderScene(scene) {
             // places it at (x + wFt/2, 0, y + dFt/2). Cached per (w,d,h) fp.
             const prim = (SHAPE_DEFS[t.subtype] && SHAPE_DEFS[t.subtype].prim) || 'rect';
             if (prim === 'stairs') {
-              geom = _getStairsGeo(wFt, hFt, dFt, 5);
+              geom = _getStairsGeo(wFt, hFt, dFt, t.steps || 5);
               scaleX = scaleY = scaleZ = 1;
             } else if (prim === 'torus') {
               // Standard tube ratio (0.25). Lie the torus flat (bottom at
@@ -4952,6 +5108,23 @@ function renderViewfinder() {
 
 function canEditActor() { return true; }
 
+// Position the actor rot-handle away from the name label.
+// The rotator is 60×60 with its centre at (30, 30) within the .token element.
+// The handle follows the "head" direction but flips to the opposite end
+// whenever that direction points toward the name label (below the token).
+function _placeActorRotHandle(handle, rotDeg) {
+  if (!handle) return;
+  const rad = ((rotDeg || 0) * Math.PI) / 180;
+  const REACH = 48; // px from rotator centre to handle centre
+  let dx = Math.sin(rad) * REACH;
+  let dy = -Math.cos(rad) * REACH;
+  // Name label sits below y≈60 within the token.  If the handle centre
+  // would land at rotator_centre_y (30) + dy > 50, flip to the other end.
+  if (dy > 20) { dx = -dx; dy = -dy; }
+  handle.style.left = (30 + dx - 6) + 'px';
+  handle.style.top  = (30 + dy - 6) + 'px';
+}
+
 function attachActorDrag(el, t) {
   const handle = el.querySelector('.rot-handle');
   const MOVE_THRESHOLD = 8; // px the pointer must travel to count as a real move
@@ -4977,6 +5150,7 @@ function attachActorDrag(el, t) {
       const ang = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI + 90;
       t.rot = Math.round(ang);
       rotator.style.transform = `rotate(${t.rot}deg)`;
+      _placeActorRotHandle(handle, t.rot);
       liveUpdateActiveSnapshot(t);
       scheduleViewfinderRender();
     };
@@ -4992,18 +5166,29 @@ function attachActorDrag(el, t) {
     if (e.target.classList.contains('rot-handle')) return;
     if (!canEditActor(t)) return;
     e.preventDefault();
-    selectToken(el, t);
-    const r = el.getBoundingClientRect();
-    // Click offset within the actor token, in LOGICAL stage pixels — divide
-    // viewport delta by the stage zoom so the actor doesn't jump when the
-    // canvas is zoomed away from 1×.
-    const _z0 = (window._stageZoom || 1);
-    const dx = (e.clientX - r.left) / _z0;
-    const dy = (e.clientY - r.top) / _z0;
+    const isCtrl = e.ctrlKey || e.metaKey;
+    if (isCtrl) {
+      if (selectedTokens.includes(t)) {
+        selectedTokens = selectedTokens.filter(s => s !== t);
+        el.classList.remove('selected');
+        selectedToken = selectedTokens[selectedTokens.length - 1] || null;
+      } else {
+        if (selectedToken && !selectedTokens.includes(selectedToken)) selectedTokens.push(selectedToken);
+        selectedTokens.push(t);
+        el.classList.add('selected');
+        selectedToken = t;
+      }
+      return;
+    }
+    if (!selectedTokens.includes(t)) {
+      selectToken(el, t);
+    }
     const startX = e.clientX, startY = e.clientY;
     const origX = t.x, origY = t.y;
     let moved = false;
     el.setPointerCapture(e.pointerId);
+    const pStartX = e.clientX, pStartY = e.clientY;
+    const groupStarts = selectedTokens.map(gt => ({ tok: gt, x: gt.x, y: gt.y }));
     el.onpointermove = (ev) => {
       if (!moved) {
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= MOVE_THRESHOLD) return;
@@ -5011,18 +5196,23 @@ function attachActorDrag(el, t) {
       }
       const stageR = document.getElementById('stage').getBoundingClientRect();
       const _z = (window._stageZoom || 1);
-      t.x = (ev.clientX - stageR.left) / _z - dx;
-      t.y = (ev.clientY - stageR.top) / _z - dy;
-      el.style.left = t.x + 'px';
-      el.style.top = t.y + 'px';
-      liveUpdateActiveSnapshot(t);
+      const pdx = (ev.clientX - pStartX) / _z;
+      const pdy = (ev.clientY - pStartY) / _z;
+      const stageEl = document.getElementById('stage');
+      for (const { tok: gt, x: gx, y: gy } of groupStarts) {
+        gt.x = gx + pdx;
+        gt.y = gy + pdy;
+        const gEl = gt === t ? el : stageEl.querySelector('.token[data-token-id="' + gt.id + '"]');
+        if (gEl) { gEl.style.left = gt.x + 'px'; gEl.style.top = gt.y + 'px'; }
+        liveUpdateActiveSnapshot(gt);
+      }
       scheduleViewfinderRender();
     };
     el.onpointerup = () => {
       el.onpointermove = null;
       el.onpointerup = null;
       if (moved) {
-        updateActiveKeyframe(t);
+        for (const { tok: gt } of groupStarts) updateActiveKeyframe(gt);
       } else {
         t.x = origX; t.y = origY;
         el.style.left = origX + 'px';
@@ -5119,6 +5309,10 @@ function _applyVehiclePassengers(stage, vTok, passengers, vSnapX, vSnapY, vRot) 
 
 function snapshotOf(t) {
   const snap = { x: t.x, y: t.y, rot: t.rot || 0 };
+  if (t.kind === 'actor') {
+    snap.pose = t.pose || 'standing';
+    snap.poseAngles = t.poseAngles ? JSON.parse(JSON.stringify(t.poseAngles)) : {};
+  }
   if (t.kind === 'camera') {
     snap.tilt = (typeof t.tilt === 'number') ? t.tilt : -10;
     snap.camHeight = (typeof t.camHeight === 'number') ? t.camHeight : 5.5;
@@ -9603,8 +9797,17 @@ function showWallRadialMenu(x, y, token) {
       if (action === 'height') { showWallHeightWidget(token); return; }
       if (action === 'rotate') { showWallRotateWidget(token); return; }
       if (action === 'window') {
-        if (!token.windows || token.windows.length === 0) {
-          token.windows = [{ t: 0.5, widthFt: 4, sillH: 3, topH: 7 }];
+        if (!token.windows) token.windows = [];
+        // Place the new window in the middle of the largest gap between
+        // existing openings (treating wall ends as gap anchors at 0 and 1).
+        {
+          const positions = [0, ...token.windows.map(w => w.t), ...(token.doors||[]).map(d => d.t), 1].sort((a,b) => a-b);
+          let bestT = 0.5, bestGap = 0;
+          for (let i = 0; i < positions.length - 1; i++) {
+            const gap = positions[i+1] - positions[i];
+            if (gap > bestGap) { bestGap = gap; bestT = (positions[i] + positions[i+1]) / 2; }
+          }
+          token.windows.push({ t: bestT, widthFt: 4, sillH: 3, topH: 7 });
         }
         if (VF.wallCache) {
           const m = VF.wallCache.get(token.id);
@@ -9623,8 +9826,15 @@ function showWallRadialMenu(x, y, token) {
         return;
       }
       if (action === 'door') {
-        if (!token.doors || token.doors.length === 0) {
-          token.doors = [{ t: 0.5, widthFt: 3, heightFt: 7, angle: 90, flip: false, reverse: false, color: '#c8a462' }];
+        if (!token.doors) token.doors = [];
+        {
+          const positions = [0, ...token.doors.map(d => d.t), ...(token.windows||[]).map(w => w.t), 1].sort((a,b) => a-b);
+          let bestT = 0.5, bestGap = 0;
+          for (let i = 0; i < positions.length - 1; i++) {
+            const gap = positions[i+1] - positions[i];
+            if (gap > bestGap) { bestGap = gap; bestT = (positions[i] + positions[i+1]) / 2; }
+          }
+          token.doors.push({ t: bestT, widthFt: 3, heightFt: 7, angle: 90, flip: false, reverse: false, color: '#c8a462' });
         }
         if (VF.wallCache) {
           const m = VF.wallCache.get(token.id);
@@ -12400,6 +12610,9 @@ function addCameraAt(clientX, clientY) {
   const tokenW = 50, tokenH = 90;
   const x = (clientX - r.left) - tokenW / 2;
   const y = (clientY - r.top) - tokenH / 2;
+  if (scene.deletedCharacters) {
+    scene.deletedCharacters = scene.deletedCharacters.filter(n => n !== name);
+  }
   scene.tokens.push({ id: uid(), kind: 'camera', name, color, x, y, rot: 0 });
   renderStage();
   renderSceneList();
@@ -12425,6 +12638,9 @@ function addActorAt(clientX, clientY) {
   const tokenW = 60, tokenH = 80;
   const x = (clientX - r.left) - tokenW / 2;
   const y = (clientY - r.top) - tokenH / 2;
+  if (scene.deletedCharacters) {
+    scene.deletedCharacters = scene.deletedCharacters.filter(n => n !== name);
+  }
   scene.tokens.push({ id: uid(), kind: 'actor', name, color, x, y, rot: 0 });
   renderStage();
   renderSceneList();
@@ -12793,6 +13009,18 @@ function applySceneAtT(idx, t) {
       }
     }
     tok.x = snap.x; tok.y = snap.y; tok.rot = rot;
+    if (tok.kind === 'actor') {
+      // Pose is discrete — use the keyframe immediately before t (keyframe a),
+      // or the only/last keyframe when outside the range.
+      let poseSrc = snap;
+      if (kfs.length > 1 && t > kfs[0].t && t < kfs[kfs.length - 1].t) {
+        let i = 0;
+        while (i + 1 < kfs.length && kfs[i + 1].t < t) i++;
+        poseSrc = kfs[i].snapshot;
+      }
+      if (poseSrc.pose != null) tok.pose = poseSrc.pose;
+      if (poseSrc.poseAngles != null) tok.poseAngles = JSON.parse(JSON.stringify(poseSrc.poseAngles));
+    }
     if (tok.kind === 'camera') {
       const base = (kfs.length === 1) ? kfs[0].snapshot : snap;
       if (base.tilt != null) tok.tilt = base.tilt;
@@ -12833,6 +13061,7 @@ function applySceneAtT(idx, t) {
     el.style.top = snap.y + 'px';
     const rotator = el.querySelector('.rotator');
     if (rotator) rotator.style.transform = `rotate(${rot}deg)`;
+    if (tok.kind === 'actor') _placeActorRotHandle(el.querySelector('.rot-handle'), rot);
     // Vehicles rotate their root element directly (no .rotator child).
     if (tok.kind === 'vehicle' || tok.kind === 'shape') el.style.transform = `rotate(${rot}deg)`;
   }
@@ -13140,6 +13369,10 @@ function addKeyframe(sceneIdx, name, t) {
       tok.x = existing.snapshot.x;
       tok.y = existing.snapshot.y;
       tok.rot = existing.snapshot.rot;
+      if (tok.kind === 'actor') {
+        if (existing.snapshot.pose != null) tok.pose = existing.snapshot.pose;
+        if (existing.snapshot.poseAngles != null) tok.poseAngles = JSON.parse(JSON.stringify(existing.snapshot.poseAngles));
+      }
       if (tok.kind === 'vehicle' && existing.snapshot.heightFt != null) {
         tok.heightFt = existing.snapshot.heightFt;
       }
@@ -13267,6 +13500,10 @@ function renderKeyframes(strip, scene, name, sceneIdx) {
             tok.x = kf.snapshot.x;
             tok.y = kf.snapshot.y;
             tok.rot = kf.snapshot.rot;
+            if (tok.kind === 'actor') {
+              if (kf.snapshot.pose != null) tok.pose = kf.snapshot.pose;
+              if (kf.snapshot.poseAngles != null) tok.poseAngles = JSON.parse(JSON.stringify(kf.snapshot.poseAngles));
+            }
             if (tok.kind === 'vehicle' && kf.snapshot.heightFt != null) {
               tok.heightFt = kf.snapshot.heightFt;
             }
@@ -13317,6 +13554,7 @@ function selectToken(el, t) {
   document.querySelectorAll('.token.selected').forEach(n => n.classList.remove('selected'));
   el.classList.add('selected');
   selectedToken = t;
+  selectedTokens = [t];
   if (t.kind === 'camera') {
     VF.activeCamName = t.name;
     renderViewfinder();
@@ -13325,59 +13563,70 @@ function selectToken(el, t) {
 }
 
 function attachDrag(el, t) {
-  let dx, dy;
   el.onpointerdown = (e) => {
     e.preventDefault();
-    document.querySelectorAll('.token.selected').forEach(n => n.classList.remove('selected'));
-    el.classList.add('selected');
-    selectedToken = t;
-    // Use the un-rotated position (t.x/t.y) as the anchor so rotated tokens
-    // (e.g. walls) don't jump on pointerdown — getBoundingClientRect returns
-    // the rotated bbox which would offset dx/dy incorrectly.
-    const stageR = document.getElementById('stage').getBoundingClientRect();
-    // Account for stage zoom — viewport pixels need to be divided by zoom
-    // to land in stage's logical coordinate system where t.x/t.y live.
-    const _z0 = (window._stageZoom || 1);
-    dx = (e.clientX - stageR.left) / _z0 - t.x;
-    dy = (e.clientY - stageR.top) / _z0 - t.y;
+    const isCtrl = e.ctrlKey || e.metaKey;
+    if (isCtrl) {
+      // Toggle this token in/out of the multi-selection.
+      if (selectedTokens.includes(t)) {
+        selectedTokens = selectedTokens.filter(s => s !== t);
+        el.classList.remove('selected');
+        selectedToken = selectedTokens[selectedTokens.length - 1] || null;
+      } else {
+        if (selectedToken && !selectedTokens.includes(selectedToken)) selectedTokens.push(selectedToken);
+        selectedTokens.push(t);
+        el.classList.add('selected');
+        selectedToken = t;
+      }
+      return;
+    }
+    // Regular click: if this token isn't already part of the selection, clear
+    // and start a new single-token selection.
+    if (!selectedTokens.includes(t)) {
+      document.querySelectorAll('.token.selected').forEach(n => n.classList.remove('selected'));
+      selectedTokens = [t];
+      selectedToken = t;
+      el.classList.add('selected');
+    }
     el.setPointerCapture(e.pointerId);
-    // If dragging a vehicle, snapshot which actors are inside its bbox right
-    // now (in the vehicle's local frame) so they ride along during the drag.
+    // Record each selected token's position at drag-start so we move all of
+    // them by the same pointer delta (no per-token dx/dy needed).
+    const pStartX = e.clientX, pStartY = e.clientY;
+    const groupStarts = selectedTokens.map(gt => ({ tok: gt, x: gt.x, y: gt.y }));
+    // Vehicle passengers ride along only when the dragged token is a vehicle.
     let dragPassengers = null;
     if (t.kind === 'vehicle' && typeof _collectVehiclePassengers === 'function') {
       const scene = state.scenes[state.activeIdx];
-      if (scene) {
-        dragPassengers = _collectVehiclePassengers(scene, t, { x: t.x, y: t.y, rot: t.rot || 0 });
-      }
+      if (scene) dragPassengers = _collectVehiclePassengers(scene, t, { x: t.x, y: t.y, rot: t.rot || 0 });
     }
     el.onpointermove = (ev) => {
       const sr = document.getElementById('stage').getBoundingClientRect();
       const _z = (window._stageZoom || 1);
-      t.x = (ev.clientX - sr.left) / _z - dx;
-      t.y = (ev.clientY - sr.top) / _z - dy;
-      el.style.left = t.x + 'px';
-      el.style.top = t.y + 'px';
-      // Carry any captured passengers along with the vehicle.
-      if (dragPassengers && dragPassengers.length) {
-        const stage = document.getElementById('stage');
-        _applyVehiclePassengers(stage, t, dragPassengers, t.x, t.y, t.rot || 0);
+      const pdx = (ev.clientX - pStartX) / _z;
+      const pdy = (ev.clientY - pStartY) / _z;
+      const stageEl = document.getElementById('stage');
+      for (const { tok: gt, x: gx, y: gy } of groupStarts) {
+        gt.x = gx + pdx;
+        gt.y = gy + pdy;
+        const gEl = gt === t ? el : stageEl.querySelector('.token[data-token-id="' + gt.id + '"]');
+        if (gEl) { gEl.style.left = gt.x + 'px'; gEl.style.top = gt.y + 'px'; }
       }
-      // Live-update the active keyframe so the dotted path between keyframes
-      // moves with the token, then redraw the overlay.
-      if (typeof liveUpdateActiveSnapshot === 'function') liveUpdateActiveSnapshot(t);
+      if (dragPassengers && dragPassengers.length) {
+        _applyVehiclePassengers(stageEl, t, dragPassengers, t.x, t.y, t.rot || 0);
+      }
+      if (typeof liveUpdateActiveSnapshot === 'function') {
+        for (const { tok: gt } of groupStarts) liveUpdateActiveSnapshot(gt);
+      }
       if (dragPassengers && dragPassengers.length && typeof liveUpdateActiveSnapshot === 'function') {
         for (const p of dragPassengers) liveUpdateActiveSnapshot(p.actor);
       }
       if (typeof refreshPathOverlay === 'function') refreshPathOverlay();
-      // Keep the viewfinder in sync as the canvas token moves.
       if (typeof scheduleViewfinderRender === 'function') scheduleViewfinderRender();
     };
     el.onpointerup = () => {
       el.onpointermove = null;
       el.onpointerup = null;
-      updateActiveKeyframe(t);
-      // Commit each passenger's new position into their own active keyframe
-      // so the move sticks (and shows on the actor's strip).
+      for (const { tok: gt } of groupStarts) updateActiveKeyframe(gt);
       if (dragPassengers && dragPassengers.length) {
         for (const p of dragPassengers) {
           if (typeof updateActiveKeyframe === 'function') updateActiveKeyframe(p.actor);
@@ -13443,24 +13692,106 @@ document.addEventListener('keydown', (e) => {
     if (btn) btn.click();
     return;
   }
-  if (e.key === 'Escape' && selectedToken) {
+  if (e.key === 'Escape' && (selectedToken || selectedTokens.length)) {
     selectedToken = null;
+    selectedTokens = [];
     renderStage();
     return;
   }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedToken) {
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key === 'a' && !inField) {
+    e.preventDefault();
+    const s = state.scenes[state.activeIdx];
+    if (!s || !s.tokens || !s.tokens.length) return;
+    // Deep-clone all tokens into the multi-copy clipboard.
+    window._copiedTokens = JSON.parse(JSON.stringify(s.tokens));
+    window._copiedToken  = null;
+    // Visual: mark every token element as multi-selected.
+    document.querySelectorAll('#stage .token').forEach(el => el.classList.add('multi-selected'));
+    _showCanvasToast(s.tokens.length + ' object' + (s.tokens.length !== 1 ? 's' : '') + ' copied — Ctrl+V to paste');
+    return;
+  }
+  if (mod && e.key === 'c' && (selectedTokens.length || selectedToken) && !inField) {
+    e.preventDefault();
+    if (selectedTokens.length > 1) {
+      window._copiedTokens = JSON.parse(JSON.stringify(selectedTokens));
+      window._copiedToken  = null;
+      _showCanvasToast(selectedTokens.length + ' objects copied');
+    } else {
+      window._copiedToken  = JSON.parse(JSON.stringify(selectedToken));
+      window._copiedTokens = null;
+    }
+    document.querySelectorAll('#stage .token').forEach(el => el.classList.remove('multi-selected'));
+    return;
+  }
+  if (mod && e.key === 'v' && (window._copiedTokens || window._copiedToken) && !inField) {
+    e.preventDefault();
+    const s = state.scenes[state.activeIdx];
+    if (!s) return;
+    if (!s.tokens) s.tokens = [];
+    if (typeof pushUndo === 'function') pushUndo();
+    if (window._copiedTokens) {
+      // Multi-paste: give each token a new id and unique name, offset by 20px.
+      const taken = new Set(s.tokens.map(t => t.name));
+      const pasted = [];
+      for (const src of window._copiedTokens) {
+        const copy = JSON.parse(JSON.stringify(src));
+        copy.id = uid();
+        copy.x  = (copy.x || 0) + 20;
+        copy.y  = (copy.y || 0) + 20;
+        if (copy.kind === 'actor' || copy.kind === 'camera') {
+          const prefix = copy.kind === 'camera' ? 'CAM' : (copy.name || 'ACTOR').replace(/\s*\d+$/, '').trim();
+          let n = 1;
+          while (taken.has(prefix + ' ' + n)) n++;
+          copy.name = prefix + ' ' + n;
+          taken.add(copy.name);
+          if (s.deletedCharacters) s.deletedCharacters = s.deletedCharacters.filter(nm => nm !== copy.name);
+        }
+        s.tokens.push(copy);
+        pasted.push(copy);
+      }
+      selectedToken = null;
+      _showCanvasToast(pasted.length + ' object' + (pasted.length !== 1 ? 's' : '') + ' pasted');
+    } else {
+      const src  = window._copiedToken;
+      const copy = JSON.parse(JSON.stringify(src));
+      copy.id = uid();
+      copy.x  = (copy.x || 0) + 20;
+      copy.y  = (copy.y || 0) + 20;
+      if (copy.kind === 'actor' || copy.kind === 'camera') {
+        const prefix = copy.kind === 'camera' ? 'CAM' : (copy.name || 'ACTOR').replace(/\s*\d+$/, '').trim();
+        const taken  = new Set(s.tokens.map(t => t.name));
+        let n = 1;
+        while (taken.has(prefix + ' ' + n)) n++;
+        copy.name = prefix + ' ' + n;
+        if (s.deletedCharacters) s.deletedCharacters = s.deletedCharacters.filter(nm => nm !== copy.name);
+      }
+      s.tokens.push(copy);
+      selectedToken = copy;
+      window._copiedToken = JSON.parse(JSON.stringify(copy));
+    }
+    renderStage();
+    renderSceneList();
+    return;
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedToken || selectedTokens.length)) {
     const tag = document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
     if (typeof pushUndo === 'function') pushUndo();
     const s = state.scenes[state.activeIdx];
-    if (selectedToken.kind === 'actor' || selectedToken.kind === 'camera') {
-      if (!s.deletedCharacters) s.deletedCharacters = [];
-      if (!s.deletedCharacters.includes(selectedToken.name)) s.deletedCharacters.push(selectedToken.name);
-      if (s.keyframes) delete s.keyframes[selectedToken.name];
-      if (s.activeKeyframe && s.activeKeyframe.name === selectedToken.name) s.activeKeyframe = null;
+    const toDelete = selectedTokens.length ? selectedTokens : (selectedToken ? [selectedToken] : []);
+    const deleteIds = new Set(toDelete.map(t => t.id));
+    for (const tok of toDelete) {
+      if (tok.kind === 'actor' || tok.kind === 'camera') {
+        if (!s.deletedCharacters) s.deletedCharacters = [];
+        if (!s.deletedCharacters.includes(tok.name)) s.deletedCharacters.push(tok.name);
+        if (s.keyframes) delete s.keyframes[tok.name];
+        if (s.activeKeyframe && s.activeKeyframe.name === tok.name) s.activeKeyframe = null;
+      }
     }
-    s.tokens = s.tokens.filter(t => t.id !== selectedToken.id);
+    s.tokens = s.tokens.filter(t => !deleteIds.has(t.id));
     selectedToken = null;
+    selectedTokens = [];
     renderStage();
     renderSceneList();
   }
