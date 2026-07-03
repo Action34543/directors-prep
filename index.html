@@ -15051,7 +15051,7 @@ window.addEventListener('resize', updateStripLabels);
   const trialBtn     = document.getElementById('lic-trial-btn');
 
   // Buy button opens checkout in browser
-  const CHECKOUT_URL = 'https://directorsprep.lemonsqueezy.com/buy/https://directorsprep.lemonsqueezy.com/checkout/buy/5e5b14c3-d11b-4a59-98fa-10093ed8c436';
+  const CHECKOUT_URL = 'https://directorsprep.lemonsqueezy.com/checkout/buy/5e5b14c3-d11b-4a59-98fa-10093ed8c436';
   buyBtn.addEventListener('click', (e) => {
     e.preventDefault();
     window.electronAPI.openExternal(CHECKOUT_URL);
