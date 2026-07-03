@@ -19,13 +19,6 @@
   #divider { background: #e5e5e3; cursor: default; position: relative; z-index: 20; }
 
   #left { border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
-  /* ── Draft bar ── */
-  #draft-bar { padding: 6px 10px; border-bottom: 1px solid var(--border); background: #f8f8f6; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; flex-shrink: 0; }
-  #draft-bar .draft-tab { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 10px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; color: #4b5563; white-space: nowrap; transition: background 0.1s, border-color 0.1s, color 0.1s; }
-  #draft-bar .draft-tab:hover { border-color: var(--accent); color: var(--accent); }
-  #draft-bar .draft-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-  #draft-bar .draft-add { font-size: 15px; line-height: 1; padding: 2px 7px; border-radius: 10px; border: 1px dashed #9ca3af; background: none; cursor: pointer; color: #9ca3af; transition: border-color 0.1s, color 0.1s; }
-  #draft-bar .draft-add:hover { border-color: var(--accent); color: var(--accent); }
   #left header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
   #left header h1 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; }
   #left header h1 .sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
@@ -282,7 +275,6 @@
 </div>
 <div id="app">
   <aside id="left">
-    <div id="draft-bar"></div>
     <div id="scene-list">
       <div id="toolbar">
         <button class="primary" id="import-btn">Import screenplay</button>
@@ -349,388 +341,7 @@ const state = {
   activeIdx: -1,
   canvasW: 2400,
   canvasH: 2400,
-  drafts: [],        // [{ name, scenes }]
-  activeDraftIdx: 0,
 };
-
-// ── Draft management ────────────────────────────────────────────────────────
-function _deepCopyScenes(scenes) {
-  return JSON.parse(JSON.stringify(scenes, (key, val) => {
-    if (key === 'charactersInitialised') return undefined;
-    return val;
-  }));
-}
-
-function _ensureDrafts() {
-  if (!state.drafts || state.drafts.length === 0) {
-    state.drafts = [{ name: 'Draft 1', scenes: _deepCopyScenes(state.scenes) }];
-    state.activeDraftIdx = 0;
-  }
-}
-
-// ── Scene matching ──────────────────────────────────────────────────────────
-function _normalizeHeading(h) {
-  return (h || '').toUpperCase()
-    .replace(/^\d+[A-Z]?\s*\.?\s*/, '')
-    .replace(/^(INT\.?\/EXT\.?|EXT\.?\/INT\.?|INT\.?|EXT\.?|EST\.?|I\/E\.?)\s*/i, '')
-    .replace(/\s*[-–]\s*(DAY|NIGHT|DUSK|DAWN|CONTINUOUS|CONT\.?'?D\.?|LATER|MORNING|EVENING|AFTERNOON|SUNSET|SUNRISE)\s*$/i, '')
-    .replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function _headingSimilarity(a, b) {
-  const na = _normalizeHeading(a), nb = _normalizeHeading(b);
-  if (na === nb) return 1.0;
-  if (!na || !nb) return 0;
-  const wa = new Set(na.split(/\s+/).filter(Boolean));
-  const wb = new Set(nb.split(/\s+/).filter(Boolean));
-  let inter = 0; for (const w of wa) if (wb.has(w)) inter++;
-  const union = new Set([...wa, ...wb]).size;
-  return union === 0 ? 0 : inter / union;
-}
-
-function _matchScenes(oldScenes, newScenes) {
-  // Returns [{ newIdx, oldIdx, score }] — oldIdx === -1 means no match.
-  const THRESHOLD = 0.35;
-  const used = new Set();
-  const matched = new Array(newScenes.length).fill(-1);
-  const scores = newScenes.map((ns, ni) =>
-    oldScenes.map((os, oi) => {
-      let s = _headingSimilarity(ns.heading, os.heading);
-      if (ns.sceneNum && os.sceneNum && ns.sceneNum === os.sceneNum) s = Math.max(s, 0.92);
-      return { ni, oi, s };
-    })
-  );
-  const flat = scores.flat().sort((a, b) => b.s - a.s);
-  for (const { ni, oi, s } of flat) {
-    if (s < THRESHOLD) break;
-    if (matched[ni] !== -1 || used.has(oi)) continue;
-    matched[ni] = oi; used.add(oi);
-  }
-  return newScenes.map((_, ni) => ({
-    newIdx: ni, oldIdx: matched[ni],
-    score: matched[ni] >= 0 ? scores[ni][matched[ni]].s : 0,
-  }));
-}
-
-// ── Match review modal ──────────────────────────────────────────────────────
-function _showMatchReviewModal(oldScenes, newScenes, matchResults, fileName, cb) {
-  const overlay = document.createElement('div');
-  Object.assign(overlay.style, { position:'fixed', inset:'0', zIndex:'9999', background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center' });
-
-  const modal = document.createElement('div');
-  Object.assign(modal.style, { background:'#fff', borderRadius:'10px', padding:'24px', width:'660px', maxWidth:'94vw', maxHeight:'82vh', display:'flex', flexDirection:'column', gap:'12px', boxShadow:'0 20px 60px rgba(0,0,0,0.35)', fontFamily:'inherit' });
-
-  const h2 = document.createElement('h2');
-  h2.textContent = 'Scene matching — ' + (fileName || 'new draft');
-  Object.assign(h2.style, { margin:'0', fontSize:'15px', fontWeight:'600' });
-
-  const matched = matchResults.filter(m => m.oldIdx >= 0).length;
-  const sub = document.createElement('p');
-  sub.textContent = `${matched} of ${newScenes.length} scenes matched to existing prep. Floorplans and keyframes will be copied to matched scenes. Unmatched scenes start fresh.`;
-  Object.assign(sub.style, { margin:'0', fontSize:'12px', color:'#6b7280', lineHeight:'1.5' });
-
-  const table = document.createElement('div');
-  Object.assign(table.style, { flex:'1', overflowY:'auto', border:'1px solid #e5e7eb', borderRadius:'6px', fontSize:'11px' });
-
-  const hdr = document.createElement('div');
-  Object.assign(hdr.style, { display:'grid', gridTemplateColumns:'1fr 20px 1fr 52px', gap:'6px', padding:'6px 8px', fontWeight:'700', color:'#6b7280', background:'#f9fafb', borderBottom:'1px solid #e5e7eb', position:'sticky', top:'0' });
-  hdr.innerHTML = '<span>Current draft scene</span><span></span><span>New screenplay scene</span><span style="text-align:right">Match</span>';
-  table.appendChild(hdr);
-
-  matchResults.forEach((m) => {
-    const row = document.createElement('div');
-    const pct = Math.round(m.score * 100);
-    const clr = m.oldIdx < 0 ? '#9ca3af' : pct >= 75 ? '#16a34a' : pct >= 45 ? '#d97706' : '#ef4444';
-    Object.assign(row.style, { display:'grid', gridTemplateColumns:'1fr 20px 1fr 52px', gap:'6px', padding:'5px 8px', borderBottom:'1px solid #f3f4f6', alignItems:'center' });
-    const oldH = m.oldIdx >= 0 ? oldScenes[m.oldIdx].heading : '—';
-    const newH = newScenes[m.newIdx].heading;
-    row.innerHTML = `
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${m.oldIdx>=0?'#374151':'#9ca3af'}" title="${oldH}">${oldH}</span>
-      <span style="color:${clr};text-align:center;font-weight:700">→</span>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#374151" title="${newH}">${newH}</span>
-      <span style="color:${clr};font-weight:700;text-align:right">${m.oldIdx>=0 ? pct+'%' : 'new'}</span>`;
-    table.appendChild(row);
-  });
-
-  const btns = document.createElement('div');
-  Object.assign(btns.style, { display:'flex', gap:'8px', justifyContent:'flex-end' });
-  const cancelBtn = document.createElement('button');
-  cancelBtn.textContent = 'Cancel';
-  Object.assign(cancelBtn.style, { padding:'7px 16px', borderRadius:'6px', border:'1px solid #d1d5db', background:'#fff', cursor:'pointer', fontSize:'13px' });
-  cancelBtn.onclick = () => { overlay.remove(); cb(false); };
-  const confirmBtn = document.createElement('button');
-  confirmBtn.textContent = 'Create Draft';
-  Object.assign(confirmBtn.style, { padding:'7px 16px', borderRadius:'6px', border:'none', background:'var(--accent,#f59e0b)', color:'#fff', cursor:'pointer', fontSize:'13px', fontWeight:'600' });
-  confirmBtn.onclick = () => { overlay.remove(); cb(true); };
-  btns.append(cancelBtn, confirmBtn);
-
-  modal.append(h2, sub, table, btns);
-  overlay.appendChild(modal);
-  document.body.appendChild(overlay);
-}
-
-// ── Import a new screenplay PDF into a new draft ────────────────────────────
-async function importScreenplayForDraft() {
-  try {
-    let text, fileName;
-    if (window.electronAPI) {
-      const filePath = await window.electronAPI.openPdfDialog();
-      if (!filePath) return;
-      const raw = await window.electronAPI.readFileB64(filePath);
-      const { b64, name } = JSON.parse(raw);
-      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-      const file = new File([bytes], name, { type: 'application/pdf' });
-      fileName = name;
-      text = await extractPdfText(file);
-    } else {
-      text = await new Promise((resolve, reject) => {
-        const inp = document.createElement('input');
-        inp.type = 'file'; inp.accept = '.pdf,application/pdf';
-        Object.assign(inp.style, { position:'fixed', left:'-9999px', top:'-9999px' });
-        document.body.appendChild(inp);
-        inp.onchange = async (ev) => {
-          const f = ev.target.files && ev.target.files[0];
-          if (!f) { inp.remove(); resolve(null); return; }
-          fileName = f.name;
-          try { resolve(await extractPdfText(f)); } catch (e) { reject(e); } finally { inp.remove(); }
-        };
-        inp.click();
-      });
-      if (!text) return;
-    }
-
-    const newScenes = parseScreenplay(text);
-    if (!newScenes.length) { alert('No scenes detected in the PDF.'); return; }
-
-    _ensureDrafts();
-    const sourceScenes = state.scenes;
-    const matchResults = _matchScenes(sourceScenes, newScenes);
-
-    _showMatchReviewModal(sourceScenes, newScenes, matchResults, fileName, (confirmed) => {
-      if (!confirmed) return;
-
-      const draftScenes = newScenes.map((ns, ni) => {
-        const m = matchResults[ni];
-        if (m.oldIdx >= 0) {
-          // Copy all physical prep from old scene, replace screenplay text
-          const base = JSON.parse(JSON.stringify(sourceScenes[m.oldIdx], (k, v) =>
-            k === 'charactersInitialised' ? undefined : v));
-          base.heading  = ns.heading;
-          base.body     = ns.body;
-          base.text     = ns.text;
-          base.sceneNum = ns.sceneNum;
-          return base;
-        }
-        return { heading: ns.heading, body: ns.body, text: ns.text, sceneNum: ns.sceneNum };
-      });
-
-      // Persist live scenes into the draft we're leaving
-      state.drafts[state.activeDraftIdx].scenes = _deepCopyScenes(state.scenes);
-
-      const n = state.drafts.length + 1;
-      state.drafts.push({ name: 'Draft ' + n, scenes: draftScenes });
-      state.activeDraftIdx = state.drafts.length - 1;
-      state.scenes = _deepCopyScenes(draftScenes);
-      if (typeof state.activeIdx !== 'number' || state.activeIdx >= state.scenes.length) state.activeIdx = 0;
-
-      renderDraftBar();
-      if (typeof renderSceneList  === 'function') renderSceneList();
-      if (typeof renderStage      === 'function') renderStage();
-      if (typeof renderActive     === 'function') renderActive();
-      if (typeof renderViewfinder === 'function') renderViewfinder();
-      if (typeof saveState        === 'function') saveState();
-    });
-  } catch (err) {
-    alert('Draft import failed: ' + err.message);
-  }
-}
-
-function createDraft() {
-  _ensureDrafts();
-  state.drafts[state.activeDraftIdx].scenes = _deepCopyScenes(state.scenes);
-  const newScenes = _deepCopyScenes(state.scenes).map(s => { delete s.charactersInitialised; return s; });
-  const n = state.drafts.length + 1;
-  state.drafts.push({ name: 'Draft ' + n, scenes: newScenes });
-  switchDraft(state.drafts.length - 1);
-}
-
-function switchDraft(idx) {
-  _ensureDrafts();
-  if (idx < 0 || idx >= state.drafts.length) return;
-  if (idx === state.activeDraftIdx) return;
-  state.drafts[state.activeDraftIdx].scenes = _deepCopyScenes(state.scenes);
-  state.activeDraftIdx = idx;
-  state.scenes = _deepCopyScenes(state.drafts[idx].scenes);
-  if (typeof state.activeIdx !== 'number' || state.activeIdx >= state.scenes.length) state.activeIdx = 0;
-  const sc = state.scenes[state.activeIdx];
-  if (sc) _applyCanvasSizeDOM(sc.canvasW || state.canvasW || 2400, sc.canvasH || state.canvasH || 2400);
-  renderDraftBar();
-  if (typeof renderSceneList  === 'function') renderSceneList();
-  if (typeof renderStage      === 'function') renderStage();
-  if (typeof renderActive     === 'function') renderActive();
-  if (typeof renderViewfinder === 'function') renderViewfinder();
-  if (typeof saveState        === 'function') saveState();
-}
-
-function renameDraft(idx, name) {
-  _ensureDrafts();
-  if (state.drafts[idx]) { state.drafts[idx].name = name; renderDraftBar(); if (typeof saveState === 'function') saveState(); }
-}
-
-function deleteDraft(idx) {
-  _ensureDrafts();
-  if (state.drafts.length <= 1) { alert('You cannot delete the only draft.'); return; }
-  state.drafts.splice(idx, 1);
-  let nextIdx = state.activeDraftIdx;
-  if (nextIdx >= state.drafts.length) nextIdx = state.drafts.length - 1;
-  state.activeDraftIdx = nextIdx;
-  state.scenes = _deepCopyScenes(state.drafts[nextIdx].scenes);
-  if (typeof state.activeIdx !== 'number' || state.activeIdx >= state.scenes.length) state.activeIdx = 0;
-  const sc = state.scenes[state.activeIdx];
-  if (sc) _applyCanvasSizeDOM(sc.canvasW || state.canvasW || 2400, sc.canvasH || state.canvasH || 2400);
-  renderDraftBar();
-  if (typeof renderSceneList  === 'function') renderSceneList();
-  if (typeof renderStage      === 'function') renderStage();
-  if (typeof renderActive     === 'function') renderActive();
-  if (typeof renderViewfinder === 'function') renderViewfinder();
-  if (typeof saveState        === 'function') saveState();
-}
-
-function _startDraftRename(tab, idx, currentName) {
-  const inp = document.createElement('input');
-  inp.type = 'text'; inp.value = currentName;
-  Object.assign(inp.style, { font:'inherit', width:'80px', padding:'1px 4px', border:'1px solid var(--accent)', borderRadius:'4px', fontSize:'11px' });
-  tab.replaceWith(inp); inp.select();
-  const commit = () => renameDraft(idx, inp.value.trim() || currentName);
-  inp.onblur = commit;
-  inp.onkeydown = (e) => { if (e.key==='Enter'){e.preventDefault();inp.blur();} if(e.key==='Escape'){inp.value=currentName;inp.blur();} };
-}
-
-function _showDraftContextMenu(x, y, idx, draftName, tab) {
-  const existing = document.getElementById('__draft-ctx-menu');
-  if (existing) existing.remove();
-
-  const menu = document.createElement('div');
-  menu.id = '__draft-ctx-menu';
-  Object.assign(menu.style, {
-    position: 'fixed', zIndex: '10000', background: '#fff',
-    border: '1px solid #e5e7eb', borderRadius: '6px',
-    boxShadow: '0 6px 18px rgba(0,0,0,0.18)', padding: '4px 0',
-    fontSize: '12px', fontWeight: '600', minWidth: '160px',
-    left: x + 'px', top: y + 'px',
-  });
-
-  const item = (label, action, danger) => {
-    const el = document.createElement('div');
-    el.textContent = label;
-    Object.assign(el.style, { padding: '8px 14px', cursor: 'pointer', color: danger ? '#dc2626' : '#374151' });
-    el.onmouseenter = () => el.style.background = danger ? '#fef2f2' : '#f3f4f6';
-    el.onmouseleave = () => el.style.background = '';
-    el.onclick = () => { menu.remove(); action(); };
-    menu.appendChild(el);
-  };
-
-  item('✏️  Rename', () => {
-    // Find the tab in the bar by index and start rename
-    const bar = document.getElementById('draft-bar');
-    if (!bar) return;
-    const tabs = bar.querySelectorAll('.draft-tab');
-    if (tabs[idx]) _startDraftRename(tabs[idx], idx, draftName);
-    else { const newName = prompt('Rename draft:', draftName); if (newName !== null) renameDraft(idx, newName.trim() || draftName); }
-  });
-
-  item('🗑️  Delete', () => {
-    const overlay = document.createElement('div');
-    Object.assign(overlay.style, { position:'fixed', inset:'0', zIndex:'10001', background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center' });
-    const box = document.createElement('div');
-    Object.assign(box.style, { background:'#fff', borderRadius:'10px', padding:'24px', width:'320px', boxShadow:'0 16px 48px rgba(0,0,0,0.28)', fontFamily:'inherit', display:'flex', flexDirection:'column', gap:'14px' });
-    const h = document.createElement('p');
-    h.textContent = 'Delete "' + draftName + '"?';
-    Object.assign(h.style, { margin:'0', fontSize:'14px', fontWeight:'700', color:'#111827' });
-    const sub = document.createElement('p');
-    sub.textContent = 'This will permanently remove this draft and all its floorplans and keyframes. This cannot be undone.';
-    Object.assign(sub.style, { margin:'0', fontSize:'12px', color:'#6b7280', lineHeight:'1.5' });
-    const btns = document.createElement('div');
-    Object.assign(btns.style, { display:'flex', gap:'8px', justifyContent:'flex-end' });
-    const cancel = document.createElement('button');
-    cancel.textContent = 'Cancel';
-    Object.assign(cancel.style, { padding:'7px 16px', borderRadius:'6px', border:'1px solid #d1d5db', background:'#fff', cursor:'pointer', fontSize:'13px' });
-    cancel.onclick = () => overlay.remove();
-    const del = document.createElement('button');
-    del.textContent = 'Delete draft';
-    Object.assign(del.style, { padding:'7px 16px', borderRadius:'6px', border:'none', background:'#dc2626', color:'#fff', cursor:'pointer', fontSize:'13px', fontWeight:'600' });
-    del.onclick = () => { overlay.remove(); deleteDraft(idx); };
-    btns.append(cancel, del);
-    box.append(h, sub, btns);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-  }, true);
-
-  document.body.appendChild(menu);
-  const dismiss = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('pointerdown', dismiss, true); } };
-  setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 0);
-}
-
-function renderDraftBar() {
-  const bar = document.getElementById('draft-bar');
-  if (!bar) return;
-  _ensureDrafts();
-  const hasDrafts = state.drafts.length > 1 || state.scenes.length > 0;
-  bar.style.display = hasDrafts ? 'flex' : 'none';
-  bar.innerHTML = '';
-
-  state.drafts.forEach((draft, i) => {
-    const tab = document.createElement('button');
-    tab.className = 'draft-tab' + (i === state.activeDraftIdx ? ' active' : '');
-    tab.textContent = draft.name;
-    tab.title = 'Switch to ' + draft.name;
-    tab.onclick = () => {
-      if (i === state.activeDraftIdx) {
-        _startDraftRename(tab, i, draft.name);
-        return;
-      }
-      switchDraft(i);
-    };
-    tab.oncontextmenu = (e) => {
-      e.preventDefault(); e.stopPropagation();
-      _showDraftContextMenu(e.clientX, e.clientY, i, draft.name, tab);
-    };
-    bar.appendChild(tab);
-  });
-
-  // "+" button with a dropdown: Import new screenplay | Copy current draft
-  const addBtn = document.createElement('button');
-  addBtn.className = 'draft-add';
-  addBtn.textContent = '+';
-  addBtn.title = 'Add draft';
-  addBtn.onclick = (e) => {
-    e.stopPropagation();
-    const existing = document.getElementById('__draft-add-menu');
-    if (existing) { existing.remove(); return; }
-    const menu = document.createElement('div');
-    menu.id = '__draft-add-menu';
-    Object.assign(menu.style, { position:'fixed', zIndex:'10000', background:'#fff', border:'1px solid #e5e7eb', borderRadius:'6px', boxShadow:'0 6px 18px rgba(0,0,0,0.18)', padding:'4px 0', fontSize:'12px', fontWeight:'600', minWidth:'190px' });
-    const rect = addBtn.getBoundingClientRect();
-    menu.style.left = rect.left + 'px';
-    menu.style.top  = (rect.bottom + 4) + 'px';
-    const item = (label, action) => {
-      const el = document.createElement('div');
-      el.textContent = label;
-      Object.assign(el.style, { padding:'8px 14px', cursor:'pointer', color:'#374151' });
-      el.onmouseenter = () => el.style.background = '#f3f4f6';
-      el.onmouseleave = () => el.style.background = '';
-      el.onclick = () => { menu.remove(); action(); };
-      menu.appendChild(el);
-    };
-    item('📄  Import new screenplay…', importScreenplayForDraft);
-    item('⎘  Copy current draft',      createDraft);
-    document.body.appendChild(menu);
-    const dismiss = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('pointerdown', dismiss, true); } };
-    setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 0);
-  };
-  bar.appendChild(addBtn);
-}
 
 // ── Undo / Redo ────────────────────────────────────────────────────────────
 {
@@ -1118,7 +729,6 @@ function colourScriptByEdit(sceneEl, scene) {
 
 // --- Rendering ------------------------------------------------------------
 function renderSceneList() {
-  renderDraftBar();
   const root = document.getElementById('scene-list');
   const savedScroll = root.scrollTop;
   // Clear scene items but keep the persistent toolbar that lives inside.
@@ -7861,10 +7471,6 @@ function exportSceneVideo(sceneIdx) {
       for (const k of Object.keys(state)) delete state[k];
       Object.assign(state, data);
       if (typeof state.activeIdx !== 'number' || state.activeIdx >= state.scenes.length) state.activeIdx = 0;
-      if (!Array.isArray(state.drafts) || state.drafts.length === 0) {
-        state.drafts = [{ name: 'Draft 1', scenes: _deepCopyScenes(state.scenes) }];
-        state.activeDraftIdx = 0;
-      }
       if (typeof renderSceneList    === 'function') renderSceneList();
       if (typeof renderStage        === 'function') renderStage();
       if (typeof renderActive       === 'function') renderActive();
@@ -7914,11 +7520,6 @@ function exportSceneVideo(sceneIdx) {
 
   // ── Serialiser ───────────────────────────────────────────────────────────
   function buildPayload() {
-    // Sync live scenes into the active draft slot before serialising so the
-    // saved file always has an up-to-date snapshot for the current draft.
-    if (Array.isArray(state.drafts) && state.drafts[state.activeDraftIdx]) {
-      state.drafts[state.activeDraftIdx].scenes = _deepCopyScenes(state.scenes);
-    }
     const obj = JSON.parse(JSON.stringify(state, (key, val) => {
       if (typeof key === 'string' && key.startsWith('_') && !key.startsWith('__')) return undefined;
       if (key === 'charactersInitialised') return undefined;
@@ -7932,12 +7533,7 @@ function exportSceneVideo(sceneIdx) {
   }
 
   function projectNameFromState() {
-    // Prefer the saved project file name; fall back to the screenplay PDF name.
-    if (currentFilePath) {
-      const parts = currentFilePath.replace(/\\/g, '/').split('/');
-      const file = parts[parts.length - 1];
-      return file.replace(/\.[^.]+$/, '') || file;
-    }
+    // Use the screenplay filename (without extension) as the project name.
     const src = state.screenplayFileName || '';
     const base = src.replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|]/g, '-').trim();
     return base || 'untitled';
@@ -8032,6 +7628,7 @@ function exportSceneVideo(sceneIdx) {
   // ── Load ──────────────────────────────────────────────────────────────────
   function applyLoadedData(data, filePath) {
     if (!data || !Array.isArray(data.scenes)) throw new Error("Not a Director's Prep save file (no scenes).");
+    // Restore PDF margin data so formatSceneBody can correctly classify dialogue.
     lineXMap.clear();
     if (data._lineXMap && typeof data._lineXMap === 'object') {
       for (const [k, v] of Object.entries(data._lineXMap)) lineXMap.set(k, v);
@@ -8039,11 +7636,6 @@ function exportSceneVideo(sceneIdx) {
     for (const k of Object.keys(state)) delete state[k];
     Object.assign(state, data);
     if (typeof state.activeIdx !== 'number' || state.activeIdx >= state.scenes.length) state.activeIdx = 0;
-    // Migrate projects saved before drafts existed
-    if (!Array.isArray(state.drafts) || state.drafts.length === 0) {
-      state.drafts = [{ name: 'Draft 1', scenes: _deepCopyScenes(state.scenes) }];
-      state.activeDraftIdx = 0;
-    }
     currentFilePath = filePath || null;
     markClean();
     setStatus(filePath ? 'saved' : 'saving', filePath ? '✓ Saved' : '');
@@ -14825,8 +14417,6 @@ async function doImport() {
       state.screenplayText = text;
       state.screenplayFileName = file.name;
       state.activeIdx = 0;
-      state.drafts = [{ name: 'Draft 1', scenes: _deepCopyScenes(scenes) }];
-      state.activeDraftIdx = 0;
       ensureSceneCharacters(state.scenes[0]);
       if (typeof window.markDirty === 'function') window.markDirty();
       renderSceneList(); renderActive(); renderStage();
@@ -14913,11 +14503,11 @@ document.getElementById('import-file').onchange = async (e) => {
       return;
     }
     state.scenes = scenes;
+    // Keep the raw imported screenplay text + the source filename on the
+    // state object so they're round-tripped via Save / Load.
     state.screenplayText = text;
     state.screenplayFileName = f.name;
     state.activeIdx = 0;
-    state.drafts = [{ name: 'Draft 1', scenes: _deepCopyScenes(scenes) }];
-    state.activeDraftIdx = 0;
     ensureSceneCharacters(state.scenes[0]);
     if (typeof window.markDirty === 'function') window.markDirty();
     renderSceneList();
@@ -14936,8 +14526,6 @@ document.getElementById('import-file').onchange = async (e) => {
 document.getElementById('clear-btn').onclick = () => {
   state.scenes = [];
   state.activeIdx = -1;
-  state.drafts = [];
-  state.activeDraftIdx = 0;
   if (typeof window._autosaveClear === 'function') window._autosaveClear();
   renderSceneList();
   renderActive();
