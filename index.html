@@ -1639,6 +1639,75 @@ function renderSceneList() {
         }
         addKeyframe(i, name, t);
       };
+      // Right-click on actor/vehicle strips → delete character option
+      if (entry.kind !== 'camera') {
+        strip.addEventListener('contextmenu', (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          const existing = document.getElementById('__strip-ctx-menu');
+          if (existing) existing.remove();
+          const menu = document.createElement('div');
+          menu.id = '__strip-ctx-menu';
+          Object.assign(menu.style, {
+            position: 'fixed', zIndex: '10000', background: '#fff',
+            border: '1px solid #e5e7eb', borderRadius: '6px',
+            boxShadow: '0 6px 18px rgba(0,0,0,0.18)', padding: '4px 0',
+            fontSize: '12px', fontWeight: '600', minWidth: '180px',
+            left: ev.clientX + 'px', top: ev.clientY + 'px',
+          });
+          const delItem = document.createElement('div');
+          delItem.textContent = '🗑️  Delete "' + name + '"';
+          Object.assign(delItem.style, { padding: '8px 14px', cursor: 'pointer', color: '#dc2626' });
+          delItem.onmouseenter = () => delItem.style.background = '#fef2f2';
+          delItem.onmouseleave = () => delItem.style.background = '';
+          delItem.onclick = () => {
+            menu.remove();
+            const overlay = document.createElement('div');
+            Object.assign(overlay.style, { position:'fixed', inset:'0', zIndex:'10001', background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center' });
+            const box = document.createElement('div');
+            Object.assign(box.style, { background:'#fff', borderRadius:'10px', padding:'24px', width:'320px', boxShadow:'0 16px 48px rgba(0,0,0,0.28)', fontFamily:'inherit', display:'flex', flexDirection:'column', gap:'14px' });
+            const h = document.createElement('p');
+            h.textContent = 'Delete "' + name + '"?';
+            Object.assign(h.style, { margin:'0', fontSize:'14px', fontWeight:'700', color:'#111827' });
+            const sub = document.createElement('p');
+            sub.textContent = 'This will remove the character and all their keyframes from this scene only. This cannot be undone.';
+            Object.assign(sub.style, { margin:'0', fontSize:'12px', color:'#6b7280', lineHeight:'1.5' });
+            const btns = document.createElement('div');
+            Object.assign(btns.style, { display:'flex', gap:'8px', justifyContent:'flex-end' });
+            const cancel = document.createElement('button');
+            cancel.textContent = 'Cancel';
+            Object.assign(cancel.style, { padding:'7px 16px', borderRadius:'6px', border:'1px solid #d1d5db', background:'#fff', cursor:'pointer', fontSize:'13px' });
+            cancel.onclick = () => overlay.remove();
+            const del = document.createElement('button');
+            del.textContent = 'Delete character';
+            Object.assign(del.style, { padding:'7px 16px', borderRadius:'6px', border:'none', background:'#dc2626', color:'#fff', cursor:'pointer', fontSize:'13px', fontWeight:'600' });
+            del.onclick = () => {
+              overlay.remove();
+              // Remove token and keyframes from this scene only
+              const scene = state.scenes[i];
+              if (scene) {
+                if (scene.tokens) scene.tokens = scene.tokens.filter(tk => tk.name !== name);
+                if (scene.keyframes) delete scene.keyframes[name];
+                // Prevent ensureSceneCharacters from re-adding this character
+                if (!scene.deletedCharacters) scene.deletedCharacters = [];
+                if (!scene.deletedCharacters.includes(name)) scene.deletedCharacters.push(name);
+              }
+              if (typeof saveState === 'function') saveState();
+              renderSceneList();
+              if (typeof renderStage === 'function') renderStage();
+              if (typeof renderActive === 'function') renderActive();
+            };
+            btns.append(cancel, del);
+            box.append(h, sub, btns);
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+          };
+          menu.appendChild(delItem);
+          document.body.appendChild(menu);
+          const dismiss = (ev2) => { if (!menu.contains(ev2.target)) { menu.remove(); document.removeEventListener('pointerdown', dismiss, true); } };
+          setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 0);
+        });
+      }
       // Vehicles share the actor strip column.
       (entry.kind === 'camera' ? camStrips : actorStrips).appendChild(strip);
       renderKeyframes(strip, s, name, i);
@@ -14670,6 +14739,17 @@ function updateActiveKeyframe(t) {
 document.addEventListener('keydown', (e) => {
   const focusedTag = document.activeElement.tagName;
   const inField = focusedTag === 'INPUT' || focusedTag === 'TEXTAREA';
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !inField) {
+    e.preventDefault();
+    const dir = e.key === 'ArrowUp' ? -1 : 1;
+    const next = state.activeIdx + dir;
+    if (next >= 0 && next < state.scenes.length) {
+      selectScene(next);
+      const el = document.getElementById('scene-' + next);
+      if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    return;
+  }
   if (e.key === ' ' && !inField && state.activeIdx >= 0) {
     e.preventDefault();
     const sceneEl = document.getElementById('scene-' + state.activeIdx);
