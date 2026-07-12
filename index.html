@@ -1727,13 +1727,80 @@ function renderSceneList() {
         font: '600 12px/1.3 sans-serif', color: '#1c1c1a',
         minWidth: '160px', userSelect: 'none',
       });
-      const row2 = document.createElement('div');
-      row2.textContent = 'Export Floorplan + Storyboard PDF';
-      Object.assign(row2.style, { padding: '6px 12px', cursor: 'pointer' });
-      row2.onmouseenter = () => row2.style.background = '#f1f5f9';
-      row2.onmouseleave = () => row2.style.background = '';
-      row2.onclick = () => { menu.remove(); exportFloorplanAndStoryboard(i); };
+      const mkSceneCtxRow = (label, fn, dim) => {
+        const r = document.createElement('div');
+        r.textContent = label;
+        Object.assign(r.style, { padding: '6px 12px', cursor: dim ? 'default' : 'pointer', opacity: dim ? '0.4' : '1' });
+        r.onmouseenter = () => { if (!dim) r.style.background = '#f1f5f9'; };
+        r.onmouseleave = () => r.style.background = '';
+        if (!dim) r.onclick = () => { menu.remove(); fn(); };
+        return r;
+      };
+
+      const row2 = mkSceneCtxRow('Export Floorplan PDF', () => exportFloorplan(i));
       menu.appendChild(row2);
+      const row2b = mkSceneCtxRow('Export Floorplan + Storyboard PDF', () => exportFloorplanAndStoryboard(i));
+      menu.appendChild(row2b);
+
+      const sep = document.createElement('div');
+      Object.assign(sep.style, { borderTop: '1px solid #e5e7eb', margin: '4px 0' });
+      menu.appendChild(sep);
+
+      const rowCopy = mkSceneCtxRow('Copy Scene Layout', () => {
+        const sc = state.scenes[i];
+        window._copiedSceneLayout = {
+          tokens: JSON.parse(JSON.stringify(sc.tokens || [])),
+          keyframes: JSON.parse(JSON.stringify(sc.keyframes || {})),
+          canvasW: sc.canvasW, canvasH: sc.canvasH,
+          deletedCharacters: JSON.parse(JSON.stringify(sc.deletedCharacters || [])),
+        };
+        _showCanvasToast('Scene layout copied');
+      });
+      menu.appendChild(rowCopy);
+
+      const hasCopy = !!window._copiedSceneLayout;
+      const rowPaste = mkSceneCtxRow('Paste Scene Layout', () => {
+        const layout = window._copiedSceneLayout;
+        if (!layout) return;
+        const confirmEl = document.createElement('div');
+        Object.assign(confirmEl.style, {
+          position: 'fixed', inset: '0', zIndex: '999999',
+          background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        });
+        const box = document.createElement('div');
+        Object.assign(box.style, {
+          background: '#fff', borderRadius: '10px', padding: '24px 28px', maxWidth: '340px',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.28)', fontFamily: 'sans-serif',
+        });
+        box.innerHTML = `<div style="font-weight:700;font-size:15px;margin-bottom:8px">Replace scene layout?</div>
+          <div style="font-size:13px;color:#555;margin-bottom:20px">This will replace all tokens and keyframes in this scene with the copied layout. This cannot be undone.</div>
+          <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button id="_pslCancel" style="padding:7px 16px;border-radius:6px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:13px">Cancel</button>
+            <button id="_pslOk" style="padding:7px 16px;border-radius:6px;border:none;background:#dc2626;color:#fff;cursor:pointer;font-weight:600;font-size:13px">Replace</button>
+          </div>`;
+        confirmEl.appendChild(box);
+        document.body.appendChild(confirmEl);
+        box.querySelector('#_pslCancel').onclick = () => confirmEl.remove();
+        box.querySelector('#_pslOk').onclick = () => {
+          confirmEl.remove();
+          const sc = state.scenes[i];
+          sc.tokens = JSON.parse(JSON.stringify(layout.tokens));
+          sc.keyframes = JSON.parse(JSON.stringify(layout.keyframes));
+          sc.deletedCharacters = JSON.parse(JSON.stringify(layout.deletedCharacters));
+          if (layout.canvasW) sc.canvasW = layout.canvasW;
+          if (layout.canvasH) sc.canvasH = layout.canvasH;
+          sc.charactersInitialised = false;
+          if (typeof saveState === 'function') saveState();
+          if (i === state.activeIdx) {
+            if (typeof renderStage === 'function') renderStage();
+            if (typeof renderActive === 'function') renderActive();
+          }
+          renderSceneList();
+          _showCanvasToast('Scene layout pasted');
+        };
+      }, !hasCopy);
+      menu.appendChild(rowPaste);
+
       document.body.appendChild(menu);
       // Clamp to viewport.
       const mr = menu.getBoundingClientRect();
@@ -7459,6 +7526,99 @@ function printSceneFloorplan(sceneIdx) {
 }
 
 // Export floorplan on page 1 + storyboard grid of viewfinder frames on page 2.
+async function exportFloorplan(sceneIdx) {
+  const scene = state.scenes[sceneIdx];
+  if (!scene) return;
+  if (typeof html2canvas !== 'function' || !window.jspdf || !window.jspdf.jsPDF) {
+    alert('PDF tooling failed to load — check the network and try again.');
+    return;
+  }
+  const stage = document.getElementById('stage');
+  if (!stage) return;
+
+  const prevActive = state.activeIdx;
+  const prevZoom = window._stageZoom || 1;
+  const prevTransform = stage.style.transform;
+
+  state.activeIdx = sceneIdx;
+  if (typeof ensureSceneCharacters === 'function') ensureSceneCharacters(scene);
+  if (typeof renderStage === 'function') renderStage();
+  window._stageZoom = 1;
+  stage.style.transform = '';
+
+  const slug = (typeof stripSceneNum === 'function')
+    ? stripSceneNum(scene.heading || '') : (scene.heading || 'scene');
+  const safeSlug = slug.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+  try {
+    await wait(80);
+    const floorCanvas = await html2canvas(stage, {
+      backgroundColor: '#ffffff',
+      scale: window.devicePixelRatio || 1,
+      logging: false,
+      useCORS: true,
+    });
+
+    const cropCanvas = (() => {
+      const PAD = 80;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const t of (scene.tokens || [])) {
+        if (typeof t.x !== 'number' || typeof t.y !== 'number') continue;
+        const tw = t.kind === 'actor' ? 60 : t.kind === 'camera' ? 50 : (t.width  || 60);
+        const th = t.kind === 'actor' ? 60 : t.kind === 'camera' ? 90 : (t.height || 60);
+        minX = Math.min(minX, t.x);
+        minY = Math.min(minY, t.y);
+        maxX = Math.max(maxX, t.x + tw);
+        maxY = Math.max(maxY, t.y + th);
+      }
+      if (!isFinite(minX)) return floorCanvas;
+      const scale = window.devicePixelRatio || 1;
+      const sx = Math.max(0, Math.round((minX - PAD) * scale));
+      const sy = Math.max(0, Math.round((minY - PAD) * scale));
+      const sw = Math.min(floorCanvas.width  - sx, Math.round((maxX - minX + PAD * 2) * scale));
+      const sh = Math.min(floorCanvas.height - sy, Math.round((maxY - minY + PAD * 2) * scale));
+      if (sw <= 0 || sh <= 0) return floorCanvas;
+      const cropped = document.createElement('canvas');
+      cropped.width  = sw;
+      cropped.height = sh;
+      cropped.getContext('2d').drawImage(floorCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      return cropped;
+    })();
+
+    const { jsPDF } = window.jspdf;
+    const sw = cropCanvas.width, sh = cropCanvas.height;
+    const orient = sw >= sh ? 'l' : 'p';
+    const pdf = new jsPDF({ orientation: orient, unit: 'pt', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 24;
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(14);
+    pdf.text(slug, pageW / 2, margin + 6, { align: 'center' });
+
+    const imgY = margin + 24;
+    const availW = pageW - margin * 2;
+    const availH = pageH - imgY - margin;
+    const ar = cropCanvas.width / cropCanvas.height;
+    let drawW = availW, drawH = availW / ar;
+    if (drawH > availH) { drawH = availH; drawW = availH * ar; }
+    const ox = margin + (availW - drawW) / 2;
+    const oy = imgY + (availH - drawH) / 2;
+    pdf.addImage(cropCanvas.toDataURL('image/png'), 'PNG', ox, oy, drawW, drawH);
+
+    pdf.save(safeSlug + ' — Floorplan.pdf');
+  } finally {
+    state.activeIdx = prevActive;
+    window._stageZoom = prevZoom;
+    stage.style.transform = prevTransform;
+    if (typeof renderStage === 'function') renderStage();
+    renderSceneList();
+  }
+}
+
 async function exportFloorplanAndStoryboard(sceneIdx) {
   const scene = state.scenes[sceneIdx];
   if (!scene) return;
@@ -14094,6 +14254,10 @@ function playScene(idx, btn) {
           snap = { x: lerp(a.snapshot.x, b.snapshot.x, u), y: lerp(a.snapshot.y, b.snapshot.y, u) };
         }
         rot = lerpAngle(a.snapshot.rot, b.snapshot.rot, u);
+        if (a.snapshot.elevation != null && b.snapshot.elevation != null) snap.elevation = lerp(a.snapshot.elevation, b.snapshot.elevation, u);
+        if (a.snapshot.tiltX != null && b.snapshot.tiltX != null && tr.tok.kind === 'actor') snap.tiltX = lerp(a.snapshot.tiltX, b.snapshot.tiltX, u);
+        if (a.snapshot.tiltZ != null && b.snapshot.tiltZ != null && tr.tok.kind === 'actor') snap.tiltZ = lerp(a.snapshot.tiltZ, b.snapshot.tiltZ, u);
+        if (a.snapshot.actorHeight != null && b.snapshot.actorHeight != null) snap.actorHeight = lerp(a.snapshot.actorHeight, b.snapshot.actorHeight, u);
         if (tr.tok.kind === 'camera') {
           if (a.snapshot.tilt != null && b.snapshot.tilt != null) snap.tilt = lerp(a.snapshot.tilt, b.snapshot.tilt, u);
           if (a.snapshot.camHeight != null && b.snapshot.camHeight != null) snap.camHeight = lerp(a.snapshot.camHeight, b.snapshot.camHeight, u);
@@ -14155,6 +14319,23 @@ function playScene(idx, btn) {
       // Vehicles rotate their root element directly (no .rotator child).
       if (tr.tok.kind === 'vehicle' || tr.tok.kind === 'shape') tr.el.style.transform = `rotate(${rot}deg)`;
       tr.tok.x = snap.x; tr.tok.y = snap.y; tr.tok.rot = rot;
+      if (snap.elevation != null) {
+        tr.tok.elevation = snap.elevation;
+        if (typeof VF !== 'undefined' && VF.actorCache) {
+          const _g = VF.actorCache.get(tr.tok.name);
+          if (_g) _g.position.y = snap.elevation;
+        }
+      }
+      if (snap.actorHeight != null) tr.tok.actorHeight = snap.actorHeight;
+      if (tr.tok.kind === 'actor') {
+        if (snap.tiltX != null) tr.tok.tiltX = snap.tiltX;
+        if (snap.tiltZ != null) tr.tok.tiltZ = snap.tiltZ;
+        // Pose is discrete — use the most recent keyframe at or before t.
+        let _poseKf = kfs[0];
+        for (let _pi = 1; _pi < kfs.length; _pi++) { if (kfs[_pi].t <= t) _poseKf = kfs[_pi]; }
+        if (_poseKf.snapshot.pose != null) tr.tok.pose = _poseKf.snapshot.pose;
+        if (_poseKf.snapshot.poseAngles != null) tr.tok.poseAngles = JSON.parse(JSON.stringify(_poseKf.snapshot.poseAngles));
+      }
       if (tr.tok.kind === 'camera') {
         if (snap.tilt != null) tr.tok.tilt = snap.tilt;
         if (snap.camHeight != null) tr.tok.camHeight = snap.camHeight;
